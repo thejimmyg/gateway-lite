@@ -1,0 +1,30 @@
+version: "3"
+services:
+  gateway:
+    restart: always
+    build: ./
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./domain:/app/domain
+    environment:
+      DEBUG: gateway-lite,express-http-proxy
+    command: ["--https-port", "443", "--port", "80", "--cert", "domain/localhost/sni/cert.pem", "--key", "domain/localhost/sni/key.pem", "--domain", "domain"]
+    links:
+      - downstream:downstream
+      - registry:registry
+  downstream:
+    restart: always
+    image: crccheck/hello-world:latest
+    ports:
+      - "8000:8000"
+  registry:
+    image: registry:2
+    restart: always
+    ports:
+      - 5000:5000
+    environment:
+      REGISTRY_STORAGE_FILESYSTEM_ROOTDIRECTORY: /data
+    volumes:
+      - ./data:/data
