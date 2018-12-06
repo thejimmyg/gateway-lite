@@ -21,9 +21,12 @@
       "afterEach"
     ]
   },
-  "repository": {},
-  "author": "",
-  "license": "",
+  "repository": {
+    "type": "git",
+    "url": "git@github.com:thejimmyg/gateway-lite.git"
+  },
+  "author": "James Gardner",
+  "license": "MIT",
   "devDependencies": {
     "standard": "^10.0.2"
   },
