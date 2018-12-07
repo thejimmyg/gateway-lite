@@ -77,29 +77,51 @@ A JSON file structured like this:
 {"admin": "supersecret"}
 ```
 
-Not terribly secure, plain passwords. But OK for now. If you have a `users.json` file, the browser will always prompt you to enter your username and password. If you enter a correct combination, the browser saves your credentials until you *exit the browser* (not just close the tab) or clear your cache.
+**CAUTION: Not terribly secure, plain passwords. But OK for now.**
+
+This defines all the users who can sign into the system.
 
 *`proxy.json`*
 
 ```
 [
-  ["/v2/", "registry:8000"]
-  ["/", "downstream:8000"]
+  ["/v2/", "registry:5000"],
+  ["/", "hello:8000"]
 ]
 ```
 
-Redirects `/v2/` to `http://registry:8000/v2/`. In this example `downstream`
+Redirects `/v2/` to `http://registry:8000/v2/`. In this example `hello`
 and `registry` are an internal DNS name set up by `docker-compose` (see the
 Docker section below) but you can also have normal hosts like
 `my.internal.domain.example.com`.
 
-CAUTION: Proxying is *always* done over HTTP though, so make sure the hosts
+The downstream destinations are checked against the request path from top to
+bottom, so if you had put the `hello` before `registry`, then registry would
+never be accessible - all paths start with `/`, so `/v2/` would never be
+checked.
+
+The third argument is optional, but if specified can have these keys:
+
+* `auth` - can be `false` (default) to mean no security is added or `true` to
+  mean the user has to sign in with a credential in `users.json` to be able to
+  access the route
+* `path` - specifies the target path for the downstream server, the default is
+  to use the same path that the request was made with
+* `limit` - the maximum size of an incoming request specified in
+  [bytes.js](https://www.npmjs.com/package/bytes) format
+
+**CAUTION: Proxying is *always* done over HTTP though, so make sure the hosts
 being proxied to are on a trusted network or the same computer otherwise
 security credentials etc will be sent unencrypted by the proxy to the
-destination server.
+destination server.**
 
 Note that the path gets mapped too, no way to map to a different path yet, so
 you can't have `/v2/` map to `/` yet).
+
+**NOTE: If you secure a route and sign in with Basic auth using the credentials
+in your `users.json` file, the browser saves your credentials until you *exit
+the browser* or clear your cache. Closing the tab is not enough.**
+
 
 ## Install and Run
 
@@ -115,13 +137,350 @@ You can get further debugging with `DEBUG=gateway-lite,express-http-proxy`.
 
 If you need a `dhparam.pem` file, you can use the `--dhparam` flag.
 
-To test everything is working, run a server on port 8000, such as the one in `bin/downstream.js`:
+To test everything is working, run a server on port 8000, such as the one in
+`bin/downstream.js`:
 
 ```
 npm run downstream
 ```
 
-Now visit http://localhost:8001/some-path and after being redirected to `/` and loging in with `admin` and `supersecret` you should see the `Hello world!` message proxied from the downstream server:
+Now visit http://localhost:8001/some-path and after being redirected to `/` and
+signing in with `admin` and `supersecret` you should see the `Hello!`
+message proxied from the downstream server, along with the path:
+
+```
+Hello!
+
+/
+```
+
+
+## Docker Compose and Certbot
+
+One of the possibilities this project enables is to run multiple services on
+the same physical machine. A good architecture for doing this is to have
+`gateway-lite` proxy to a Docker registry container for pushing docker
+containers too, and then using docker-compose to also run those pushed
+containers as the various services.
+
+Something to watch out for if you use Docker is that you don't have any
+containers sharing the same internal port. (So don't have two that internally
+use 8000 for example).
+
+Here is how to install Docker and Docker compose on an Ubuntu 18.04 ami
+provisioned in AWS Free Tier:
+
+Install docker:
+
+```
+sudo apt update -y
+sudo apt upgrade -y
+sudo apt install -y apt-transport-https ca-certificates curl software-properties-common
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo apt-key add -
+sudo add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu bionic stable"
+sudo apt update -y
+```
+
+Now check the candidate for Docker comes from the `download.docker.com` repo
+and install it:
+
+```
+apt-cache policy docker-ce
+sudo apt install -y docker-ce
+sudo systemctl status docker
+```
+
+Don't require sudo with docker:
+
+```
+sudo usermod -aG docker ${USER}
+sudo su - ${USER}
+id -nG
+docker ps
+```
+
+Now install docker compose:
+
+```
+sudo curl -L https://github.com/docker/compose/releases/download/1.23.2/docker-compose-`uname -s`-`uname -m` -o /usr/local/bin/docker-compose
+sudo chmod +x /usr/local/bin/docker-compose
+docker-compose --version
+```
+
+At this point you should be able to run a gateway:
+
+Write this to a `docker-compose.yml` file:
+
+```
+export GATEWAY_LITE_VERSION=0.1.0
+cat << EOF > docker-compose.yml
+version: "3"
+services:
+  gateway:
+    restart: unless-stopped
+    image: thejimmyg/gateway-lite:$GATEWAY_LITE_VERSION
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./domain:/app/domain
+    environment:
+      DEBUG: gateway-lite,express-http-proxy
+    command: ["--https-port", "443", "--port", "80", "--cert", "domain/localhost/sni/cert.pem", "--key", "domain/localhost/sni/key.pem", "--domain", "domain"]
+EOF
+```
+
+Setup a basic domain structure for your domain:
+
+TODO: Make the www. redirect configurable and not automatic based on the number of `.` characters in the domain.
+
+```
+export DOMAIN=docker.jimmyg.org
+mkdir -p domain/$DOMAIN
+cd domain
+ln -s $DOMAIN www.$DOMAIN
+cd $DOMAIN
+mkdir -p webroot/.well-known
+cat << EOF > webroot/.well-known/hello
+world!
+EOF
+cd ../../
+```
+
+To run this with Docker Compose:
+
+```
+docker-compose up
+```
+
+You can add the `-d` flag to have Docker run everything as a daemon and keep it
+running, as well as to start up automatically when you reboot.
+
+You'll see this initially as part of the output from the first boot:
+
+```
+gateway_1  | 2018-12-07T15:44:24.857Z gateway-lite Error: ENOENT: no such file or directory, open 'domain/localhost/sni/key.pem'
+gateway_1  |     at Object.openSync (fs.js:436:3)
+gateway_1  |     ...
+```
+
+This is because at the moment there are no secure certificates so gateway-lite
+isn't serving any HTTPS requests so if you try to connect with an `https://`
+request you'll get a connection error. Since HTTP requests redirect to HTTPS
+for most URLs you'll get this problem for most URLs. We'll set up certificates
+in a moment.
+
+One directory is serving on HTTP without redirecting though, the `.well-known`
+directroy. This directory is used by Let's Encrypt to verify you own the domain
+and to issue certificates.
+
+Since you just created a file named `hello` in this directory you should be
+able to view it on HTTP at these URLs (replacing `$DOMAIN` with your actual
+domain):
+
+```
+curl http://$DOMAIN/.well-known/hello
+curl http://www.$DOMAIN/.well-known/hello
+```
+
+In both cases you should see `world!`.
+
+Now you'll need to get HTTPS certificates.
+
+Whilst you run these next commands you must keep the server running. The easiest way to do that is to restart the server in daemon mode. Press `Ctrl+C` and wait a few seconds to safely stop the server, then run:
+
+```
+docker-compose up -d
+```
+
+On the AWS Ubuntu 18.04 free tier AMI, you can run these commands as the
+`ubuntu` user to get your Let's Encrypt certificate.
+
+Bear in mind that Let's Encrypt operates a rate limit as described here:
+
+[https://letsencrypt.org/docs/rate-limits/](https://letsencrypt.org/docs/rate-limits/)
+
+This means that you should be careful that everything is correctly configured
+before applying for a certificate. There is also a sandbox you can use when
+setting things up.
+
+Also make sure you run this from the same directory you just ran `docker-compose up -d` in:
+
+```
+sudo apt update -y
+sudo apt install -y certbot
+sudo certbot certonly --webroot -w $(pwd)/domain/www.${DOMAIN}/webroot -d www.${DOMAIN} -d ${DOMAIN}
+mkdir domain/${DOMAIN}/sni
+sudo cp /etc/letsencrypt/live/www.${DOMAIN}/fullchain.pem domain/${DOMAIN}/sni/cert.pem
+sudo cp /etc/letsencrypt/live/www.${DOMAIN}/privkey.pem domain/${DOMAIN}/sni/key.pem
+sudo chown -R ubuntu:ubuntu domain/${DOMAIN}/sni
+```
+
+Renewal is now already set up but you can dry-run it:
+
+```
+cat /etc/cron.d/certbot
+sudo certbot renew --dry-run
+```
+
+At this point you'll want to link `localhost` to your domain so that gateway-lite can use them as the default. You can do this like this:
+
+```
+cd domain
+ln -s $DOMAIN localhost
+cd ..
+```
+
+You'll need to restart your Docker compose stack so that the server can find the certificates and begin serving on HTTPS too.
+
+In the same directory as your `docker-compose.yml` file, run this:
+
+```
+docker-compose down
+docker-compose up -d
+```
+
+You can view your logs:
+
+```
+docker-compose logs -f
+```
+
+Now you should be able to visit the root of your domain and be correctly
+redirected to HTTPS which will give you an error that no `proxy.json` file is
+yet set up for downstream servers.
+
+```
+curl -v http://$DOMAIN 2>&1 | grep "Redirecting"
+curl https://$DOMAIN
+```
+
+Let's add a Docker Registry container for pushing private docker images to, and
+a simple hello world server both downstream from the gateway. We'll call them
+`registry` and `hello`.
+
+First, edit the `docker-compose.yml` file to add a `links` config to the end of
+the `gateway` section to points to the two other containers by name:
+
+```
+    links:
+      - hello:hello
+      - registry:registry
+```
+
+Internally Docker will use this to set up a network so that from within the
+gateway, the `hello` will point to the IP of the running `hello` container and
+`registry` will point to the name of the running `registry` container.
+
+This means that with this configuration if you were able to run `curl
+http://registry:5000/v2/` from the `gateway` container you'd see the response
+from the HTTP service running on port 5000 in the `registry` container.
+
+Next add the sections for the two new services:
+
+**CAUTION: `crccheck/hello-world:latest` is just an example docker image I
+found, I can't guarantee it is secure, so maybe use your own image instead.
+Also it only has a `latest` tag which might be different by the time you use
+it.**
+
+```
+  hello:
+    restart: unless-stopped
+    image: crccheck/hello-world:latest
+    ports:
+      - "8000:8000"
+  registry:
+    image: registry:2
+    restart: unless-stopped
+    ports:
+      - 5000:5000
+    environment:
+      REGISTRY_STORAGE_FILESYSTEM_ROOTDIRECTORY: /data
+    volumes:
+      - ./data:/data
+```
+
+Your `docker-compose.yml` should now look like this:
+
+```
+version: "3"
+services:
+  gateway:
+    restart: unless-stopped
+    image: thejimmyg/gateway-lite:latest
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./domain:/app/domain
+    environment:
+      DEBUG: gateway-lite,express-http-proxy
+    command: ["--https-port", "443", "--port", "80", "--cert", "domain/localhost/sni/cert.pem", "--key", "domain/localhost/sni/key.pem", "--domain", "domain"]
+    links:
+      - hello:hello
+      - registry:registry
+  hello:
+    restart: unless-stopped
+    image: crccheck/hello-world:latest
+    ports:
+      - "8000:8000"
+  registry:
+    image: registry:2
+    restart: unless-stopped
+    ports:
+      - 5000:5000
+    environment:
+      REGISTRY_STORAGE_FILESYSTEM_ROOTDIRECTORY: /data
+    volumes:
+      - ./data:/data
+```
+
+Make a data directory for Docker registry:
+
+```
+mkdir data
+```
+
+Now you'll need to tell the gateway-lite server how to proxy to the downstream
+service. You do this with the `domain/$DOMAIN/proxy.json` file:
+
+```
+cat << EOF > domain/$DOMAIN/proxy.json
+[
+  ["/v2/", "registry:5000", {"auth": true, "limit": "900mb"}],
+  ["/", "hello:8000", {"path": "/"}]
+]
+EOF
+```
+
+See the earlier documentation to understand the format.
+
+To make your server private so that people can't push to Docker Registry you
+can sign in with the credentials in `domain/$DOMAIN/users.json`:
+
+```
+cat << EOF > domain/$DOMAIN/users.json
+{"admin": "secret"}
+EOF
+```
+
+**CAUTION: Use your own username and password, `admin` and `secret` are too
+easy to guess.**
+
+Restart docker compose again:
+
+```
+docker-compose down
+docker-compose up -d
+```
+
+If you visit `/` you should see the Hello whale:
+
+```
+curl https://www.$DOMAIN
+```
+
+Gives:
 
 ```
 
@@ -138,158 +497,29 @@ Hello World
                              `'--.._\..--''
 ```
 
-Something to watch out for is that you don't have any containers sharing the same internal port. (So don't have two that internally use 8000 for example).
 
-Note: You need to close the browser and restart it (or clear your browsing history) to log out after you have signed in.
-
-## Docker
-
-One of the possibilities this project enables is to run multiple services on
-the same physical machine. A good architecture for doing this is to have
-`gateway-lite` proxy to a Docker registry container for pushing docker
-containers too, and then using docker-compose to also run those pushed
-containers as the various services.
-
-
-Here's an example you can use once you have run your own registry. Replace
-`docker.example.com` with your own docker registry location.
+Now, to use the Docker Registry you'll need to sign in with the credentials you set up. Visit `/v2/` and you should see `{}`.
 
 ```
-version: "3"
-services:
-  gateway:
-    restart: always
-    image: thejimmyg/gateway-lite:0.1.0
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./domain:/app/domain
-    environment:
-      DEBUG: gateway-lite,express-http-proxy
-    command: ["--https-port", "443", "--port", "80", "--cert", "domain/localhost/sni/cert.pem", "--key", "domain/localhost/sni/key.pem", "--domain", "domain"]
-    links:
-      - downstream:downstream
-      - registry:registry
-  downstream:
-    restart: always
-    image: crccheck/hello-world:latest
-    ports:
-      - "8000:8000"
-  registry:
-    image: registry:2
-    restart: always
-    ports:
-      - 5000:5000
-    environment:
-      REGISTRY_STORAGE_FILESYSTEM_ROOTDIRECTORY: /data
-    volumes:
-      - ./data:/data
+curl -v -u admin:secret https://$DOMAIN/v2/
 ```
 
-Make a data directory:
+You'll need to close your browser or clear your cache to sign out since this only uses Basic Auth.
+
+From another machine you should be able to sign in to your registry:
 
 ```
-mkdir data
+docker login $DOMAIN
 ```
 
-Create a domain setup for your domain:
+Once signed in, you should be able to push and pull images. For example:
 
 ```
-cp -pr domain/localhost domain/docker.example.com
+docker build . -t docker.jimmyg.org/gateway-lite:latest
+docker push docker.jimmyg.org/gateway-lite:latest
 ```
 
-To run as part of Docker compose:
-
-```
-docker-compose up --build
-```
-
-You might get a second or so of downtime after the new containers are built as
-the services are swtiched over. You can add the `-d` flag to have Docker run
-everything as a daemon and keep it running, as well as to start up
-automatically when you reboot.
-
-To add new downstream services, adjust the links in the `gateway` section
-`links` so that each downstream service is linked.
-
-In this case we have a Docker registry named `registry` and a simple Hello
-world server named `downstream`. The names you use here have to match the names
-in your `proxty.json` files when using Docker compose.
-
-```
-    links:
-      - downstream:downstream
-      - registry:registry
-```
-
-Within the config for each downstream container you can specify the image like
-this if you want it to be pulled from the private docker registry you are
-running (assuming your registry is at `registry.example.com`):
-
-```
-    image: registry.example.com/hello-world:latest
-```
-
-There is a sample `docker-compose.yml` for local development and testing in the
-repo, but once you have pushed your containers somewhere you need only a
-`docker-compose.yml` file and your `domain` directories in order to deploy a
-set of services.
-
-You can login with the credentials in `users.json`:
-
-```
-docker login your.example.com
-```
-
-## Certbot
-
-The structure is such that you can setup certificates to auto-renew.
-
-```
-sudo apt-install certbot
-sudo certbot certonly --webroot -w $(pwd)/domain/www.example.com/webroot -d www.example.com -d example.com
-```
-
-Renewal is now already set up but you can dry-run it:
-
-```
-$ cat /etc/cron.d/certbot
-$ sudo certbot renew --dry-run
-```
-
-Bear in mind that Let's Encrypt operates a rate limit as described here:
-
-[https://letsencrypt.org/docs/rate-limits/](https://letsencrypt.org/docs/rate-limits/)
-
-This means that you should be careful that everything is correctly configured
-before applying for a certificate. There is also a sandbox you can use when
-setting things up.
-
-TODO: Describe how to use the sandbox.
-
-### Troubleshooting
-
-You might see something like this in your docker compose output:
-
-```
-gateway_b3b9424a9b9f | [nodemon] 1.18.7
-gateway_b3b9424a9b9f | [nodemon] to restart at any time, enter `rs`
-gateway_b3b9424a9b9f | [nodemon] watching: /app/domain/**/*
-gateway_b3b9424a9b9f | [nodemon] starting `node bin/gateway-lite.js --https-port 3000 --port 8001 --cert domain/localhost/sni/cert.pem --key domain/localhost/sni/key.pem --domain domain`
-gateway_b3b9424a9b9f | Error: connect ECONNREFUSED 127.0.0.1:8000
-gateway_b3b9424a9b9f |     at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1113:14)
-gateway_b3b9424a9b9f | Error: connect ECONNREFUSED 127.0.0.1:8000
-gateway_b3b9424a9b9f |     at TCPConnectWrap.afterConnect [as oncomplete] (net.js:1113:14)
-```
-
-This is because the `domain/localhost/proxy.json` file specifies `localhost` as
-the domain but this has no meaning inside the registry. Instead use
-`downstream` since this is the name you gave in the `docker-compose.yml` file
-to the downstream container. Within the docker compose network, containers are
-accessible via their name.
-
-## Tutorial
+## Testing Locally Only
 
 Assuming that `example.com` is setup for `127.0.0.1` in your `/etc/hosts`, you can run these tests with the demo server:
 
@@ -330,24 +560,6 @@ server).
 So, now run the `certbot` command to populate `key.pem` and `cert.pem` in
 `domain/www.example.com/sni`.
 
-Set `DOMAIN` to match your domain:
-
-```
-export DOMAIN=your.example.com
-```
-
-Now the AWS Ubuntu 18.04 free tier AMI, you can run this as the `ubuntu` user
-to get your Let's Encrypt vertificate:
-
-```
-sudo apt-get update -y
-sudo apt-get install certbot
-sudo certbot certonly --webroot -w $(pwd)/domain/www.${DOMAIN}/webroot -d www.${DOMAIN} -d ${DOMAIN}
-sudo cp /etc/letsencrypt/live/www.${DOMAIN}/fullchain.pem domain/${DOMAIN}/sni/cert.pem
-sudo cp /etc/letsencrypt/live/www.${DOMAIN}/privkey.pem domain/${DOMAIN}/sni/key.pem
-sudo chown -R ubuntu:ubuntu domain/${DOMAIN}/sni
-```
-
 You can now set up a local domain copy for your testing your domain locally,
 set `DOMAIN` to match your domain.
 
@@ -368,8 +580,8 @@ and `www.example.com` and set up your real domain to point to `127.0.0.1`
 temporarily on your machine. Now the following commands should run fine wihtout
 an internet connection.
 
-*CAUTION: Remember to take the override out of `/etc/hosts` when you have
-finished testing.*
+**NOTE: Remember to take the override out of `/etc/hosts` when you have
+finished testing.**
 
 Now run your local server, specifying the valid certificates you've just
 created, and using different ports from the default if you like:
@@ -394,3 +606,20 @@ curl -v https://${DOMAIN}
 
 You can add a `proxy.json` file to now proxy to a downstream HTTP server
 (unsecure connection, so only use on the same machine or a trusted network).
+
+## Changelog
+
+TODO: Update version number, test for real on EC2
+
+### 0.2.0
+
+* Per-downstream server auth, limit and path options
+* Full Docker and Certbot tutorial
+
+### 0.1.0
+
+First version
+
+## Release
+
+Instructions started in [`RELEASE.md`](RELEASE.md).

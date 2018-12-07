@@ -137,19 +137,32 @@ async function domainApp (domainDir, domain, httpOptions, httpsOptions) {
     debug(`  Set up ${Object.keys(redirects).length} redirect(s)`)
   }
 
-  if (Object.keys(users).length) {
-    const o = {users, challenge: true}
-    app.use(basicAuth(o))
-    debug(`  Set up ${Object.keys(users).length} auth user(s)`)
-  }
+  // if (Object.keys(users).length) {
+  //   const o = {users, challenge: true}
+  //   app.use(basicAuth(o))
+  //   debug(`  Set up ${Object.keys(users).length} auth user(s)`)
+  // }
 
   if (proxyPaths.length) {
     // We'll have this last because it will redirect /something to /something/ if it can't be found.
     // this can mess with the behaviour above
     debug(`  Setting up ${proxyPaths.length} proxy path(s)`)
     for (let i = 0; i < proxyPaths.length; i++) {
-      app.use(proxyPaths[i][0], proxy(proxyPaths[i][1], {
-        limit: '900mb',
+      const [reqPath, downstream, options] = proxyPaths[i]
+      debug('   ', reqPath, downstream, options)
+      if (proxyPaths[i].length > 3) {
+        throw new Error('Too many items in the array for downstream server ' + proxyPaths[i])
+      }
+      const {auth = false, limit = '500mb', path, ...rest} = options || {}
+      if (Object.keys(rest).length) {
+        throw new Error('Unexpected extra options: ' + Object.keys({ rest }).join(', '), 'for downstream server ' + proxyPaths[i])
+      }
+      if (auth) {
+        debug(`    Set up ${Object.keys(users).length} auth user(s)`)
+        app.use(reqPath, basicAuth({users, challenge: true}))
+      }
+      app.use(reqPath, proxy(downstream, {
+        limit: limit,
         // userResDecorator: function(proxyRes, proxyResData, userReq, userRes) {
         //   // debug(proxyRes)
         //   debug(proxyResData)
@@ -162,6 +175,11 @@ async function domainApp (domainDir, domain, httpOptions, httpsOptions) {
         preserveHostHdr: true,
         https: false,
         proxyReqPathResolver: function (req) {
+          if (path) {
+            const target = path + req.originalUrl.slice(reqPath.length, req.originalUrl.length)
+            debug('>>>', req.originalUrl, reqPath, target)
+            return target
+          }
           debug('>>>', req.originalUrl)
           return req.originalUrl
         },
@@ -175,13 +193,14 @@ async function domainApp (domainDir, domain, httpOptions, httpsOptions) {
         } // ,
         // timeout: 2000
       }))
-      debug('    Set up', proxyPaths[i][0], '->',  proxyPaths[i][1])
+      debug('    Set up', proxyPaths[i][0], '->', proxyPaths[i][1])
     }
+  } else {
+    app.use(function (req, res, next) {
+      res.status(404).json({error: `No proxy.json set up for ${domain}`})
+    })
+    debug('  Set up 404 handler to warn of no proxy.json file')
   }
-  app.use(function (req, res, next) {
-    res.status(404).json({error: `No proxy.json set up for ${domain}`})
-  })
-  debug('  Set up 404 handler')
   return app
 }
 

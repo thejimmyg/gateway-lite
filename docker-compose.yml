@@ -1,7 +1,10 @@
+# This file can be used to build and run the gateway-lite container from the current source tree
+# See the README.md for normal use where you'll use the published docker image directly.
+
 version: "3"
 services:
   gateway:
-    restart: always
+    restart: unless-stopped
     build: ./
     ports:
       - "80:80"
@@ -12,10 +15,10 @@ services:
       DEBUG: gateway-lite,express-http-proxy
     command: ["--https-port", "443", "--port", "80", "--cert", "domain/localhost/sni/cert.pem", "--key", "domain/localhost/sni/key.pem", "--domain", "domain"]
     links:
-      - downstream:downstream
+      - hello:hello
       - registry:registry
-  downstream:
-    restart: always
+  hello:
+    restart: unless-stopped
     image: crccheck/hello-world:latest
     ports:
       - "8000:8000"

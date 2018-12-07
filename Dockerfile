@@ -1,15 +1,3 @@
-# Example
-#
-# ```
-# export DOCKER_ID_USER="thejimmyg"
-# docker login
-# docker build . -t "$DOCKER_ID_USER/gateway-lite:0.1.0"
-# docker tag "$DOCKER_ID_USER/gateway-lite:0.1.0" "$DOCKER_ID_USER/gateway-lite:latest"
-# docker push "$DOCKER_ID_USER/gateway-lite:0.1.0"
-# docker push "$DOCKER_ID_USER/gateway-lite:latest"
-# ```
-
-
 FROM node:alpine as base
 
 FROM base as builder
