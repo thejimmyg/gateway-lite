@@ -212,7 +212,7 @@ At this point you should be able to run a gateway:
 Write this to a `docker-compose.yml` file:
 
 ```
-export GATEWAY_LITE_VERSION=0.1.0
+export GATEWAY_LITE_VERSION=0.2.0
 cat << EOF > docker-compose.yml
 version: "3"
 services:
@@ -519,6 +519,12 @@ docker build . -t docker.jimmyg.org/gateway-lite:latest
 docker push docker.jimmyg.org/gateway-lite:latest
 ```
 
+When you are deploying docker images that you pushed to your own private repo,
+you'll need to explicitly pull them with `docker pull` before restarting the
+server with Docker Compose because can't pull from the registry automatically
+if the registry itself isn't running.
+
+
 ## Testing Locally Only
 
 Assuming that `example.com` is setup for `127.0.0.1` in your `/etc/hosts`, you can run these tests with the demo server:
@@ -608,8 +614,6 @@ You can add a `proxy.json` file to now proxy to a downstream HTTP server
 (unsecure connection, so only use on the same machine or a trusted network).
 
 ## Changelog
-
-TODO: Update version number, test for real on EC2
 
 ### 0.2.0
 

@@ -16,7 +16,7 @@ const cwd = process.cwd()
 const command = (args) => {
   const program = new Command()
   program
-  .version('0.1.0')
+  .version('0.2.0')
   .option('--domain [dir]', `Base path to the all the domain directories`)
   .option('--key [path]', 'Path to the HTTPS private key, defaults to private.key in the current directory')
   .option('--cert [path]', 'Path to the HTTPS certificate, defaults to certificate.pem in the current directory')

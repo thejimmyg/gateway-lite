@@ -1,6 +1,17 @@
 # Release
 
-## Example
+## Version Numbers
+
+```
+export OLD_VERSION=0.1.0
+git grep $OLD_VERSION | grep -v "package-lock.json" | grep -v "### $OLD_VERSION" | grep -v "express-mustache-overlays" | grep -v "RELEASE.md"
+npm install  # To update package.json
+```
+
+
+## Docker
+
+Test by pushing to the `test` tag before deploying the final version.
 
 ```
 docker login
