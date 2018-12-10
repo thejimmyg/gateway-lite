@@ -569,6 +569,7 @@ You can add a `proxy.json` file to now proxy to a downstream HTTP server
 ### 0.2.1 2018-12-10
 
 * Certbot certificate renews built in
+* Don't crash on invalid hostname
 
 ### 0.2.0 2018-12-07
 

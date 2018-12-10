@@ -346,7 +346,9 @@ async function main () {
             return secureContext[domain]
           }
         } else {
-          throw new Error('No keys/certificates for domain requested')
+          const msg = 'No keys/certificates for domain requested'
+          debug(msg)
+          cb(new Error(msg), null)
         }
       },
       // Must list a default key and cert because required by tls.createServer()
