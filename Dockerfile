@@ -1,13 +1,14 @@
-FROM node:alpine as base
+FROM node:alpine as certbot
+RUN apk update && apk add certbot && rm -rf /var/cache/apk/*
 
-FROM base as builder
+FROM certbot as builder
 RUN mkdir /app
 WORKDIR /app
 COPY package.json /app
 COPY package-lock.json /app
 RUN npm install
 
-FROM base
+FROM certbot
 COPY --from=builder /app /app
 WORKDIR /app
 EXPOSE 8000
@@ -19,5 +20,5 @@ ENV HTTPS_PORT=3000
 ENV NODE_ENV=production
 ENV PATH="${PATH}:/app/node_modules/.bin"
 COPY bin/ /app/bin/
-ENTRYPOINT ["node", "bin/gateway-lite.js"]
+ENTRYPOINT ["nodemon", "-e", "js,pem", "bin/gateway-lite.js"]
 CMD = []

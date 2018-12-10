@@ -11,6 +11,7 @@ services:
       - "443:443"
     volumes:
       - ./domain:/app/domain
+      - ./letsencrypt:/etc/letsencrypt
     environment:
       DEBUG: gateway-lite,express-http-proxy
     command: ["--https-port", "443", "--port", "80", "--cert", "domain/localhost/sni/cert.pem", "--key", "domain/localhost/sni/key.pem", "--domain", "domain"]
@@ -23,7 +24,7 @@ services:
     ports:
       - "8000:8000"
   registry:
-    image: registry:2
+    image: registry:2.6.2
     restart: always
     ports:
       - 5000:5000
