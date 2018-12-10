@@ -1,6 +1,6 @@
 {
   "name": "gateway-lite",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "An HTTP/HTTPS/HTTP 2 frontend express server for proxying to plain HTTP backends. Supports multiple domains, redirect, proxy paths, basic auth and automatic Lets Encrypt certificates",
   "scripts": {
     "docker:build": "docker build . -t docker.jimmyg.org/gateway-lite:latest",

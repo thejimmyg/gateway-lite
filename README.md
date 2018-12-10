@@ -174,7 +174,7 @@ At this point you should be able to run a gateway.
 Write this to a `docker-compose.yml` file, replacing `james@example.com` with an email address that has accepted the Let's Encrypt terms:
 
 ```
-export GATEWAY_LITE_VERSION=0.2.0
+export GATEWAY_LITE_VERSION=0.2.1
 cat << EOF > docker-compose.yml
 version: "3"
 services:
@@ -293,7 +293,7 @@ docker-compose up -d
 You can view your logs:
 
 ```
-docker-compose logs -f
+docker-compose logs --tail="10" -f
 ```
 
 Now you should be able to visit the root of your domain and be correctly
@@ -566,12 +566,16 @@ You can add a `proxy.json` file to now proxy to a downstream HTTP server
 
 ## Changelog
 
-### 0.2.0
+### 0.2.1 2018-12-10
+
+* Certbot certificate renews built in
+
+### 0.2.0 2018-12-07
 
 * Per-downstream server auth, limit and path options
 * Full Docker and Certbot tutorial
 
-### 0.1.0
+### 0.1.0 2018-12-04
 
 First version
 
