@@ -55,6 +55,12 @@ You can now log in with:
 ssh -i devenv-key.pem ubuntu@$EC2_PUBLIC_IP
 ```
 
+You may have to run this if you get a warning:
+
+```
+sudo locale-gen en_GB.UTF-8
+```
+
 ## Docker Compose
 
 
@@ -215,7 +221,13 @@ Here are some commands that will help you clean up everything that you've just c
 
 ```
 aws ec2 terminate-instances --instance-ids "$INSTANCE_ID" --query "TerminatingInstances[0].CurrentState.Name" --output=text
-# You have to wait for the instance to stop before continuing, but you can run the command above multiple times safely until you see `terminated`.
+```
+
+You have to wait for the instance to stop before continuing, but you can run the command above multiple times safely until you see `terminated`.
+
+Then continue with:
+
+```
 aws ec2 delete-security-group --group-name devenv-sg  --output text
 aws ec2 delete-key-pair --key-name devenv-key --output text
 rm -f devenv-key.pem
