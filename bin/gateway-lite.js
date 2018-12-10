@@ -7,7 +7,8 @@ const http = require('http')
 const https = require('https')
 const path = require('path')
 const proxy = require('express-http-proxy')
-// const spdy = require('spdy')
+const schedule = require('node-schedule')
+const shell = require('shelljs')
 const tls = require('tls')
 const vhost = require('vhost')
 
@@ -15,6 +16,7 @@ const cwd = process.cwd()
 
 const command = (args) => {
   const program = new Command()
+
   program
   .version('0.2.0')
   .option('--domain [dir]', `Base path to the all the domain directories`)
@@ -23,7 +25,14 @@ const command = (args) => {
   .option('--dhparam [path]', 'Path to the DH Params file')
   .option('--port [port]', 'Port for HTTP, defaults to 80')
   .option('--https-port [port]', 'Port for HTTPS, defaults to 443')
+  .option('--staging', `Use the Let's Encrypt staging server`, true)
+  .arguments('<email>')
   program.parse(args)
+  if (program.args.length !== 1) {
+    console.error('No email that has agreed to the Let\'s Encrypt terms was specified')
+    shell.exit(1)
+  }
+  const email = program.args[0]
   const port = program.port || 80
   const httpOptions = {port}
   const domainDir = program.domain || 'domain'
@@ -49,7 +58,13 @@ const command = (args) => {
     console.log(msg)
     debug(msg)
   }
-  return {httpOptions, httpsOptions, domainDir}
+  const staging = program.statging || false
+  if (staging) {
+    debug('Let\'s encrypt staging mode')
+  } else {
+    debug('Let\'s encrypt live mode')
+  }
+  return {email, httpOptions, httpsOptions, domainDir, staging}
 }
 
 const makeRedirectorHandler = (httpOptions, httpsOptions) => {
@@ -82,7 +97,6 @@ const makeRedirectorHandler = (httpOptions, httpsOptions) => {
 }
 
 async function domainApp (domainDir, domain, httpOptions, httpsOptions) {
-  const webrootStaticDir = path.join(domainDir, domain, 'webroot')
   const redirectsFile = path.join(domainDir, domain, 'redirects.json')
 
   let redirects = {}
@@ -117,9 +131,6 @@ async function domainApp (domainDir, domain, httpOptions, httpsOptions) {
   const app = express()
 
   app.disable('x-powered-by')
-  const wellKnown = path.join(webrootStaticDir, '.well-known')
-  app.use('/.well-known', express.static(wellKnown))
-  debug('  Serving /.well-known from', wellKnown)
   // This is to redirect to https://www.
   app.use(makeRedirectorHandler(httpOptions, httpsOptions))
   debug('  Set up redirectorHandler')
@@ -136,12 +147,6 @@ async function domainApp (domainDir, domain, httpOptions, httpsOptions) {
     })
     debug(`  Set up ${Object.keys(redirects).length} redirect(s)`)
   }
-
-  // if (Object.keys(users).length) {
-  //   const o = {users, challenge: true}
-  //   app.use(basicAuth(o))
-  //   debug(`  Set up ${Object.keys(users).length} auth user(s)`)
-  // }
 
   if (proxyPaths.length) {
     // We'll have this last because it will redirect /something to /something/ if it can't be found.
@@ -164,11 +169,7 @@ async function domainApp (domainDir, domain, httpOptions, httpsOptions) {
       app.use(reqPath, proxy(downstream, {
         limit: limit,
         // userResDecorator: function(proxyRes, proxyResData, userReq, userRes) {
-        //   // debug(proxyRes)
         //   debug(proxyResData)
-        //   // debug(userReq)
-        //   // debug(userRes)
-        //   // proxyReqOpts.headers['Docker-Distribution-Api-Version'] = 'registry/2.0'
         //   return proxyResData;
         // },
         parseReqBody: false,
@@ -184,14 +185,14 @@ async function domainApp (domainDir, domain, httpOptions, httpsOptions) {
           return req.originalUrl
         },
         proxyReqOptDecorator: function (proxyReqOpts, req) {
-          const ip = req.ip.split(':')[3] // (req.connection.remoteAddress || '').split(',')[0].trim()
+          const ip = req.ip.split(':')[3]
           debug(ip, req.protocol)
           proxyReqOpts.headers['X-Real-IP'] = ip
           proxyReqOpts.headers['X-Forwarded-For'] = ip
           proxyReqOpts.headers['X-Forwarded-Proto'] = req.protocol
           return proxyReqOpts
-        } // ,
-        // timeout: 2000
+        },
+        timeout: 2*60*1000
       }))
       debug('    Set up', proxyPaths[i][0], '->', proxyPaths[i][1])
     }
@@ -204,35 +205,63 @@ async function domainApp (domainDir, domain, httpOptions, httpsOptions) {
   return app
 }
 
+function getRandomInt(max) {
+  return Math.floor(Math.random() * Math.floor(max));
+}
+
 async function main () {
-  // const {key, cert, dhparam, port, httpsPort, domainDir} =
-  const {httpOptions, httpsOptions, domainDir} = command(process.argv)
+  const {email, staging, httpOptions, httpsOptions, domainDir} = command(process.argv)
+
+  // const help = `
+  // (*)   *    *    *    *    *
+  //  ┬    ┬    ┬    ┬    ┬    ┬
+  //  │    │    │    │    │    │
+  //  │    │    │    │    │    └ day of week (0 - 7) (0 or 7 is Sun)
+  //  │    │    │    │    └───── month (1 - 12)
+  //  │    │    │    └────────── day of month (1 - 31)
+  //  │    │    └─────────────── hour (0 - 23)
+  //  │    └──────────────────── minute (0 - 59)
+  //  └───────────────────────── second (0 - 59, OPTIONAL)
+  // `
+  // console.log(help)
+  // let j = schedule.scheduleJob('42 * * * * *', function(){
+
+  schedule.scheduleJob('0 */12 * * *', function () {
+    const wait = getRandomInt(12*60*60)
+    console.log(`Attempting certificate renewal in ${wait} seconds (so on average twice per day with a lot of variation) ...`)
+    setTimeout(
+      () => {
+        shell.exec('certbot -q renew', function (code, stdout, stderr) {
+          console.log('Exit code:', code)
+          console.log('Program output:', stdout)
+          console.log('Program stderr:', stderr)
+          if (code !== 0) {
+            shell.echo('Error: Failed to renew certificates')
+          }
+        })
+      },
+      wait * 1000
+    )
+  })
+
   const dirs = fs.readdirSync(domainDir)
-  const secureContext = {}
-  const app = express()
+
+  const httpApp = express()
   for (let d = 0; d < dirs.length; d++) {
     const domain = dirs[d]
-    debug('Adding domain', domain)
-    if (httpsOptions) {
-      const stat = fs.statSync(path.join(domainDir, domain))
-      if (stat && stat.isDirectory()) {
-        const sniDir = path.join(domainDir, domain, 'sni')
-        secureContext[domain] = tls.createSecureContext({
-          key: fs.readFileSync(path.join(sniDir, 'key.pem'), 'utf8'),
-          cert: fs.readFileSync(path.join(sniDir, 'cert.pem'), 'utf8')
-          // ca: fs.readFileSync('./path_to_certificate_authority_bundle.ca-bundle1', 'utf8'), // this ca property is optional
-        })
-        // Instead of this you should create a symlink explicitly to support www. and other sub-domains
-        // secureContext[domain.slice(4)] = secureContext[domain]
-      }
-    }
-    const vhostApp = await domainApp(domainDir, domain, httpOptions, httpsOptions)
-    app.use(vhost(domain, vhostApp))
-    // Instead of this you should create a symlink explicitly to support www. and other sub-domains
-    // app.use(vhost(domain.slice(4), vhostApp))
+    const vhostApp = express()
+    vhostApp.disable('x-powered-by')
+    const webrootStaticDir = path.join(domainDir, domain, 'webroot')
+    const wellKnown = path.join(webrootStaticDir, '.well-known')
+    vhostApp.use('/.well-known', express.static(wellKnown))
+    debug('  Serving /.well-known from', wellKnown)
+    // This is to redirect to https://www.
+    vhostApp.use(makeRedirectorHandler(httpOptions, httpsOptions))
+    debug('  Set up redirectorHandler')
+    httpApp.use(vhost(domain, vhostApp))
   }
 
-  http.createServer(app).listen(httpOptions.port, (error) => {
+  http.createServer(httpApp).listen(httpOptions.port, (error) => {
     if (error) {
       debug('Error:', error)
       return process.exit(1)
@@ -240,6 +269,68 @@ async function main () {
       debug(`Listening for HTTP requests on port ${httpOptions.port}`)
     }
   })
+
+  const secureContext = {}
+  const app = express()
+  for (let d = 0; d < dirs.length; d++) {
+    const domain = dirs[d]
+    debug('Adding domain', domain)
+    shell.mkdir('-p', path.join(domainDir, domain, 'sni'))
+    const certs = shell.ls(path.join(domainDir, domain, 'sni', '*.pem'))
+    debug('  ' + certs.length + ' certificates found')
+    if (certs.length < 2) {
+      try {
+        await new Promise((resolve, reject) => {
+          debug('  Attempting to get a Let\'s Encrypt certificate for', domain)
+          let cmd = `certbot certonly --webroot -w "domain/${domain}/webroot" -d "${domain}" -n -m "${email}" --agree-tos`
+          if (staging) {
+            cmd += ' --staging'
+          }
+          debug('  ' + cmd)
+          shell.exec(cmd, {async: true, stdio: 'inherit'}, function (code, stdout, stderr) {
+            if (code !== 0) {
+              console.log('  Failed to get certificate for', domain)
+              debug('  Failed to get certificate for', domain)
+              reject(new Error('Failed to get certificate for ' + domain))
+            } else {
+              debug('  Got new certificate for ' + domain)
+              try {
+                shell.cp(`/etc/letsencrypt/live/${domain}/fullchain.pem`, path.join(domainDir, domain, 'sni', 'cert.pem'))
+                shell.cp(`/etc/letsencrypt/live/${domain}/privkey.pem`, path.join(domainDir, domain, 'sni', 'key.pem'))
+                resolve(true)
+              } catch (e) {
+                reject(e)
+              }
+            }
+          })
+        })
+      } catch (e) {
+        console.log(e)
+      }
+    }
+    debug('Checking https options ...')
+    if (httpsOptions) {
+      try {
+        const sniDir = path.join(domainDir, domain, 'sni')
+        const statSni = fs.statSync(sniDir)
+        if (statSni && statSni.isDirectory()) {
+          const statKey = fs.statSync(path.join(sniDir, 'key.pem'))
+          const statCert = fs.statSync(path.join(sniDir, 'cert.pem'))
+          if (statKey && statCert) {
+            secureContext[domain] = tls.createSecureContext({
+              key: fs.readFileSync(path.join(sniDir, 'key.pem'), 'utf8'),
+              cert: fs.readFileSync(path.join(sniDir, 'cert.pem'), 'utf8')
+            })
+          }
+        }
+      } catch (e) {
+        debug('Could not load certificates for domain', domain, e)
+      }
+    }
+    debug('Setting up virtual hosts ...')
+    const vhostApp = await domainApp(domainDir, domain, httpOptions, httpsOptions)
+    app.use(vhost(domain, vhostApp))
+  }
 
   if (httpsOptions) {
     const {key, cert, dhparam} = httpsOptions
@@ -258,7 +349,7 @@ async function main () {
           throw new Error('No keys/certificates for domain requested')
         }
       },
-      // must list a default key and cert because required by tls.createServer()
+      // Must list a default key and cert because required by tls.createServer()
       key,
       cert,
       dhparam

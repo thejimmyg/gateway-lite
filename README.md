@@ -127,7 +127,7 @@ the browser* or clear your cache. Closing the tab is not enough.**
 
 ```
 npm install
-DEBUG=gateway-lite npm start -- --https-port 3000 --port 8001 --cert domain/localhost/sni/cert.pem --key domain/localhost/sni/key.pem --domain domain
+DEBUG=gateway-lite npm start -- --https-port 3000 --port 8001 --cert domain/localhost/sni/cert.pem --key domain/localhost/sni/key.pem --domain domain james@example.com
 ```
 
 The certificates you sepcify here are used if a SNI match can't be found to use
@@ -167,49 +167,11 @@ Something to watch out for if you use Docker is that you don't have any
 containers sharing the same internal port. (So don't have two that internally
 use 8000 for example).
 
-Here is how to install Docker and Docker compose on an Ubuntu 18.04 ami
-provisioned in AWS Free Tier:
+There are some instructions for provisioning an Ubuntu 18.04 ami on AWS with Docker Compose in [AWS.md](https://github.com/thejimmyg/gateway-lite/blob/master/AWS.md).
 
-Install docker:
+At this point you should be able to run a gateway.
 
-```
-sudo apt update -y
-sudo apt upgrade -y
-sudo apt install -y apt-transport-https ca-certificates curl software-properties-common
-curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo apt-key add -
-sudo add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu bionic stable"
-sudo apt update -y
-```
-
-Now check the candidate for Docker comes from the `download.docker.com` repo
-and install it:
-
-```
-apt-cache policy docker-ce
-sudo apt install -y docker-ce
-sudo systemctl status docker
-```
-
-Don't require sudo with docker:
-
-```
-sudo usermod -aG docker ${USER}
-sudo su - ${USER}
-id -nG
-docker ps
-```
-
-Now install docker compose:
-
-```
-sudo curl -L https://github.com/docker/compose/releases/download/1.23.2/docker-compose-`uname -s`-`uname -m` -o /usr/local/bin/docker-compose
-sudo chmod +x /usr/local/bin/docker-compose
-docker-compose --version
-```
-
-At this point you should be able to run a gateway:
-
-Write this to a `docker-compose.yml` file:
+Write this to a `docker-compose.yml` file, replacing `james@example.com` with an email address that has accepted the Let's Encrypt terms:
 
 ```
 export GATEWAY_LITE_VERSION=0.2.0
@@ -226,8 +188,14 @@ services:
       - ./domain:/app/domain
     environment:
       DEBUG: gateway-lite,express-http-proxy
-    command: ["--https-port", "443", "--port", "80", "--cert", "domain/localhost/sni/cert.pem", "--key", "domain/localhost/sni/key.pem", "--domain", "domain"]
+    command: ["--https-port", "443", "--port", "80", "--cert", "domain/localhost/sni/cert.pem", "--key", "domain/localhost/sni/key.pem", "--domain", "domain", "james@example.com"]
 EOF
+```
+
+Create a directory for Let's Encrypt:
+
+```
+mkdir -p letsencrypt
 ```
 
 Setup a basic domain structure for your domain:
@@ -245,6 +213,15 @@ cat << EOF > webroot/.well-known/hello
 world!
 EOF
 cd ../../
+```
+
+To prevent Let's Encrypt from trying to get certificates:
+
+```
+touch domain/${DOMAIN}/sni/cert.pem
+touch domain/${DOMAIN}/sni/key.pem
+touch domain/www.${DOMAIN}/sni/cert.pem
+touch domain/www.${DOMAIN}/sni/key.pem
 ```
 
 To run this with Docker Compose:
@@ -293,47 +270,20 @@ Whilst you run these next commands you must keep the server running. The easiest
 docker-compose up -d
 ```
 
-On the AWS Ubuntu 18.04 free tier AMI, you can run these commands as the
-`ubuntu` user to get your Let's Encrypt certificate.
-
 Bear in mind that Let's Encrypt operates a rate limit as described here:
 
 [https://letsencrypt.org/docs/rate-limits/](https://letsencrypt.org/docs/rate-limits/)
 
 This means that you should be careful that everything is correctly configured
-before applying for a certificate. There is also a sandbox you can use when
-setting things up.
+before applying for a certificate. There is also a staging environment you can
+use when setting things up. Pass `--staging` when running Gateway Lite to use
+the Let's Encrypt staging environment.
 
-Also make sure you run this from the same directory you just ran `docker-compose up -d` in:
+Your gateway should restart when new certificates are added and it should
+automatically renew certificates as long as it is left up and running.
 
-```
-sudo apt update -y
-sudo apt install -y certbot
-sudo certbot certonly --webroot -w $(pwd)/domain/www.${DOMAIN}/webroot -d www.${DOMAIN} -d ${DOMAIN}
-mkdir domain/${DOMAIN}/sni
-sudo cp /etc/letsencrypt/live/www.${DOMAIN}/fullchain.pem domain/${DOMAIN}/sni/cert.pem
-sudo cp /etc/letsencrypt/live/www.${DOMAIN}/privkey.pem domain/${DOMAIN}/sni/key.pem
-sudo chown -R ubuntu:ubuntu domain/${DOMAIN}/sni
-```
-
-Renewal is now already set up but you can dry-run it:
-
-```
-cat /etc/cron.d/certbot
-sudo certbot renew --dry-run
-```
-
-At this point you'll want to link `localhost` to your domain so that gateway-lite can use them as the default. You can do this like this:
-
-```
-cd domain
-ln -s $DOMAIN localhost
-cd ..
-```
-
-You'll need to restart your Docker compose stack so that the server can find the certificates and begin serving on HTTPS too.
-
-In the same directory as your `docker-compose.yml` file, run this:
+If you want to manually restart everything, in the same directory as your
+`docker-compose.yml` file, run this:
 
 ```
 docker-compose down
@@ -390,7 +340,7 @@ it.**
     ports:
       - "8000:8000"
   registry:
-    image: registry:2
+    image: registry:2.6.2
     restart: unless-stopped
     ports:
       - 5000:5000
@@ -413,6 +363,7 @@ services:
       - "443:443"
     volumes:
       - ./domain:/app/domain
+      - ./letsencrypt:/etc/letsencrypt
     environment:
       DEBUG: gateway-lite,express-http-proxy
     command: ["--https-port", "443", "--port", "80", "--cert", "domain/localhost/sni/cert.pem", "--key", "domain/localhost/sni/key.pem", "--domain", "domain"]
@@ -425,7 +376,7 @@ services:
     ports:
       - "8000:8000"
   registry:
-    image: registry:2
+    image: registry:2.6.2
     restart: unless-stopped
     ports:
       - 5000:5000

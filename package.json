@@ -5,7 +5,9 @@
   "scripts": {
     "docker:build": "docker build . -t docker.jimmyg.org/gateway-lite:latest",
     "docker:push": "docker push docker.jimmyg.org/gateway-lite:latest",
-    "docker:run": "docker run -v \"`pwd`/domain:/app/domain\" --init -p 8000:8000 -p 3000:3000 gateway-lite:latest --https-port 3000 --port 8000 --cert domain/www.example.com/sni/cert.pem --key domain/www.example.com/sni/key.pem --domain domain",
+    "docker:build:test": "docker build . -t docker.jimmyg.org/gateway-lite:test",
+    "docker:push:test": "docker push docker.jimmyg.org/gateway-lite:test",
+    "docker:run": "mkdir -p domain; mkdir -p letsencrypt; docker run -e DEBUG=gateway-lite -v \"`pwd`/letsencrypt:/etc/letsencrypt:rw\" -v \"`pwd`/domain:/app/domain\" --init -p 8000:8000 -p 3000:3000 docker.jimmyg.org/gateway-lite:latest --https-port 3000 --port 8000 --cert domain/www.example.com/sni/cert.pem --key domain/www.example.com/sni/key.pem --domain domain --staging",
     "dev": "nodemon bin/gateway-lite.js -e bin/*js,domain/*",
     "fix": "standard --fix",
     "start": "node bin/gateway-lite.js",
@@ -28,6 +30,7 @@
   "author": "James Gardner",
   "license": "MIT",
   "devDependencies": {
+    "nodemailer": "^4.7.0",
     "standard": "^10.0.2"
   },
   "dependencies": {
@@ -36,8 +39,9 @@
     "express": "^4.15.2",
     "express-basic-auth": "^1.1.6",
     "express-http-proxy": "^1.5.0",
-    "express-mustache-overlays": "^0.1.0",
+    "node-schedule": "^1.3.1",
     "nodemon": "^1.18.6",
+    "shelljs": "^0.8.3",
     "vhost": "^3.0.2"
   }
 }
