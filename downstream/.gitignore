@@ -1,0 +1,4 @@
+*.DS_Store
+*.sw[op]
+.env
+node_modules

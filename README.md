@@ -138,10 +138,11 @@ You can get further debugging with `DEBUG=gateway-lite,express-http-proxy`.
 If you need a `dhparam.pem` file, you can use the `--dhparam` flag.
 
 To test everything is working, run a server on port 8000, such as the one in
-`bin/downstream.js`:
+`downstream/bin/downstream.js`:
 
 ```
-npm run downstream
+cd downstream
+npm start
 ```
 
 Now visit http://localhost:8001/some-path and after being redirected to `/` and
@@ -328,15 +329,10 @@ from the HTTP service running on port 5000 in the `registry` container.
 
 Next add the sections for the two new services:
 
-**CAUTION: `crccheck/hello-world:latest` is just an example docker image I
-found, I can't guarantee it is secure, so maybe use your own image instead.
-Also it only has a `latest` tag which might be different by the time you use
-it.**
-
 ```
   hello:
     restart: unless-stopped
-    image: crccheck/hello-world:latest
+    image: thejimmyg/downstream:latest
     ports:
       - "8000:8000"
   registry:
@@ -372,7 +368,7 @@ services:
       - registry:registry
   hello:
     restart: unless-stopped
-    image: crccheck/hello-world:latest
+    image: thejimmyg/downstream:latest
     ports:
       - "8000:8000"
   registry:
@@ -425,7 +421,7 @@ docker-compose down
 docker-compose up -d
 ```
 
-If you visit `/` you should see the Hello whale:
+If you visit `/` you should see the `Hello!` page from `thejimmyg/downstream:latest`:
 
 ```
 curl https://www.$DOMAIN
@@ -434,18 +430,9 @@ curl https://www.$DOMAIN
 Gives:
 
 ```
+Hello!
 
-Hello World
-
-
-                                       ##         .
-                                 ## ## ##        ==
-                              ## ## ## ## ##    ===
-                           /""""""""""""""""\___/ ===
-                      ~~~ {~~ ~~~~ ~~~ ~~~~ ~~ ~ /  ===- ~~~
-                           \______ o          _,/
-                            \      \       _,'
-                             `'--.._\..--''
+/
 ```
 
 

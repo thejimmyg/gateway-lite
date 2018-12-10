@@ -20,7 +20,7 @@ services:
       - registry:registry
   hello:
     restart: unless-stopped
-    image: crccheck/hello-world:latest
+    image: thejimmyg/downstream:latest
     ports:
       - "8000:8000"
   registry:

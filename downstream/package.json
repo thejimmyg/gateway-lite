@@ -1,0 +1,16 @@
+{
+  "name": "downstream",
+  "version": "0.1.0",
+  "description": "Hello world example to be used as a downstream server",
+  "scripts": {
+    "docker:build": "docker build . -t thejimmyg/downstream:latest",
+    "docker:push": "docker push thejimmyg/downstream:latest",
+    "docker:run": "docker run -e PORT=8000 -p 8000:8000 thejimmyg/downstream:latest",
+    "start": "node bin/downstream.js"
+  },
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.15.2"
+  }
+}
