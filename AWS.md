@@ -35,8 +35,10 @@ aws ec2 describe-regions --output text
 # The `aws` command supports querying of the output with the `--query` option. We'll use it quite a lot here to extract the bits we need from the command output
 export GROUP_ID=`aws ec2 create-security-group --group-name devenv-sg --description "security group for development environment" --output text`
 echo "Created new security group ${GROUP_ID}"
-# Allow incoming SSH 22 from any IP
+# Allow incoming SSH 22, HTTP 80 and HTTPS 443 from any IP
 aws ec2 authorize-security-group-ingress --group-name devenv-sg --protocol tcp --port 22 --cidr 0.0.0.0/0
+aws ec2 authorize-security-group-ingress --group-name devenv-sg --protocol tcp --port 80 --cidr 0.0.0.0/0
+aws ec2 authorize-security-group-ingress --group-name devenv-sg --protocol tcp --port 443 --cidr 0.0.0.0/0
 # Create a key pair
 aws ec2 create-key-pair --key-name devenv-key --query 'KeyMaterial' --output text > devenv-key.pem
 # Make it secure

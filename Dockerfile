@@ -20,5 +20,5 @@ ENV HTTPS_PORT=3000
 ENV NODE_ENV=production
 ENV PATH="${PATH}:/app/node_modules/.bin"
 COPY bin/ /app/bin/
-ENTRYPOINT ["nodemon", "-e", "js,pem", "bin/gateway-lite.js"]
+ENTRYPOINT ["nodemon", "-e", "bin/*js,domain/*", "bin/gateway-lite.js"]
 CMD = []
