@@ -16,7 +16,7 @@ Test by pushing to the `test` tag before deploying the final version.
 ```
 docker login
 export DOCKER_ID_USER="thejimmyg"
-export VERSION="0.2.1"
+export VERSION="0.2.2"
 docker build . -t "$DOCKER_ID_USER/gateway-lite:$VERSION"
 docker push "$DOCKER_ID_USER/gateway-lite:$VERSION"
 docker tag "$DOCKER_ID_USER/gateway-lite:$VERSION" "$DOCKER_ID_USER/gateway-lite:latest"

@@ -181,7 +181,7 @@ version: "3"
 services:
   gateway:
     restart: unless-stopped
-    image: thejimmyg/gateway-lite:0.2.1
+    image: thejimmyg/gateway-lite:0.2.2
     ports:
       - "80:80"
       - "443:443"
@@ -450,6 +450,10 @@ if the registry itself isn't running.
 
 
 ## Changelog
+
+### 0.2.2 2018-12-11
+
+* Allow fetched HTTPS certifcates to be used without restarting
 
 ### 0.2.1 2018-12-10
 
