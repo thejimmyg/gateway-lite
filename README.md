@@ -1,9 +1,13 @@
 # Gateway Lite
 
-Front-end HTTP and HTTPS proxy that can Nginx in your deployment. Express is
-much easier to work with in many circumstances than Nginx so it might well be
-easier to get the configuration you need using this project as a starting
-point.
+An HTTP/HTTPS frontend express server for proxying to plain HTTP backends.
+Supports multiple domains, redirect, proxy paths, basic auth and automatic Lets
+Encrypt certificates.
+
+Designed to to be able to replace Nginx in your deployment.
+Express is much easier to work with in many circumstances than Nginx so it
+might well be easier to get the configuration you need using this project as a
+starting point.
 
 **CAUTION: Under active development, not ready for production use by people
 outside the development team yet.**
@@ -33,11 +37,7 @@ of the gateway.
 
 The project is available as a docker container here: [https://hub.docker.com/r/thejimmyg/gateway-lite/](https://hub.docker.com/r/thejimmyg/gateway-lite/)
 
-If you have two variants of the same domain, you can always symlink the directories:
-
-```
-ln -s some.example.com example.com
-```
+If you have two variants of the same domain, never symlink the directories because the certificates placed in each are for the specific domains. You must create a directory structure for each.
 
 Next is a description of all the configuration options. Each of these is run in
 the order they are described here, so SSL checking happens before redirects
@@ -172,28 +172,30 @@ There are some instructions for provisioning an Ubuntu 18.04 ami on AWS with Doc
 
 At this point you should be able to run a gateway.
 
-Write this to a `docker-compose.yml` file, replacing `james@example.com` with an email address that has accepted the Let's Encrypt terms:
+Get a terminal running on the machine on which you want to run the gateway for carrying out these next steps.
+
+Write this to a `docker-compose.yml` file on the machine, replacing `james@example.com` with an email address that has accepted the Let's Encrypt terms (who will receive any messages from Let's Encrypt) and `localhost` with your real domain name (e.g. `example.com`):
 
 ```
-export GATEWAY_LITE_VERSION=0.2.1
-cat << EOF > docker-compose.yml
 version: "3"
 services:
   gateway:
     restart: unless-stopped
-    image: thejimmyg/gateway-lite:$GATEWAY_LITE_VERSION
+    image: thejimmyg/gateway-lite:0.2.1
     ports:
       - "80:80"
       - "443:443"
     volumes:
       - ./domain:/app/domain
+      - ./letsencrypt:/etc/letsencrypt
     environment:
       DEBUG: gateway-lite,express-http-proxy
     command: ["--https-port", "443", "--port", "80", "--cert", "domain/localhost/sni/cert.pem", "--key", "domain/localhost/sni/key.pem", "--domain", "domain", "james@example.com"]
-EOF
 ```
 
-Create a directory for Let's Encrypt:
+It is OK to run Docker Compose from your user's home directory for example.
+
+Create a directory for Let's Encrypt that will be mounted into your Docker container. This allows you to keep your certificates between restarts (essential):
 
 ```
 mkdir -p letsencrypt
@@ -201,31 +203,31 @@ mkdir -p letsencrypt
 
 Setup a basic domain structure for your domain:
 
-TODO: Make the www. redirect configurable and not automatic based on the number of `.` characters in the domain.
-
 ```
-export DOMAIN=docker.jimmyg.org
+export DOMAIN=example.com
 mkdir -p domain/$DOMAIN
 cd domain
-ln -s $DOMAIN www.$DOMAIN
-cd $DOMAIN
-mkdir -p webroot/.well-known
-cat << EOF > webroot/.well-known/hello
+mkdir -p $DOMAIN/webroot/.well-known
+cat << EOF > $DOMAIN/webroot/.well-known/hello
 world!
 EOF
-cd ../../
+mkdir -p $DOMAIN/sni
+cd ../
+cp -pr $DOMAIN www.$DOMAIN
 ```
 
-To prevent Let's Encrypt from trying to get certificates:
+If you already have certificates, put them in these locations, otherwise Let's Encrypt will create them for you and put them in the right place:
 
-```
-touch domain/${DOMAIN}/sni/cert.pem
-touch domain/${DOMAIN}/sni/key.pem
-touch domain/www.${DOMAIN}/sni/cert.pem
-touch domain/www.${DOMAIN}/sni/key.pem
-```
+* domain/${DOMAIN}/sni/cert.pem
+* domain/${DOMAIN}/sni/key.pem
+* domain/www.${DOMAIN}/sni/cert.pem
+* domain/www.${DOMAIN}/sni/key.pem
 
-To run this with Docker Compose:
+You are now ready to go!
+
+Before Let's Encrypt can get certificates, your domain must be publicly accessible on the internet, and connected to the server IP you are about to run.
+
+With your DNS A records in place, run Docker Compose:
 
 ```
 docker-compose up
@@ -242,19 +244,7 @@ gateway_1  |     at Object.openSync (fs.js:436:3)
 gateway_1  |     ...
 ```
 
-This is because at the moment there are no secure certificates so gateway-lite
-isn't serving any HTTPS requests so if you try to connect with an `https://`
-request you'll get a connection error. Since HTTP requests redirect to HTTPS
-for most URLs you'll get this problem for most URLs. We'll set up certificates
-in a moment.
-
-One directory is serving on HTTP without redirecting though, the `.well-known`
-directroy. This directory is used by Let's Encrypt to verify you own the domain
-and to issue certificates.
-
-Since you just created a file named `hello` in this directory you should be
-able to view it on HTTP at these URLs (replacing `$DOMAIN` with your actual
-domain):
+At this point, Gateway Lite should get you a certificate, notice the change and restart, so that everything now works.
 
 ```
 curl http://$DOMAIN/.well-known/hello
@@ -263,9 +253,7 @@ curl http://www.$DOMAIN/.well-known/hello
 
 In both cases you should see `world!`.
 
-Now you'll need to get HTTPS certificates.
-
-Whilst you run these next commands you must keep the server running. The easiest way to do that is to restart the server in daemon mode. Press `Ctrl+C` and wait a few seconds to safely stop the server, then run:
+You can now restart the server in daemon mode. Press `Ctrl+C` and wait a few seconds to safely stop the server, then run:
 
 ```
 docker-compose up -d
@@ -301,9 +289,11 @@ Now you should be able to visit the root of your domain and be correctly
 redirected to HTTPS which will give you an error that no `proxy.json` file is
 yet set up for downstream servers.
 
+From a terminal where you have set up `DOMAIN` to point to your domain:
+
 ```
 curl -v http://$DOMAIN 2>&1 | grep "Redirecting"
-curl https://$DOMAIN
+curl -v https://$DOMAIN 2>&1 | grep "Redirecting"
 ```
 
 Let's add a Docker Registry container for pushing private docker images to, and
@@ -392,12 +382,10 @@ Now you'll need to tell the gateway-lite server how to proxy to the downstream
 service. You do this with the `domain/$DOMAIN/proxy.json` file:
 
 ```
-cat << EOF > domain/$DOMAIN/proxy.json
 [
   ["/v2/", "registry:5000", {"auth": true, "limit": "900mb"}],
   ["/", "hello:8000", {"path": "/"}]
 ]
-EOF
 ```
 
 See the earlier documentation to understand the format.
@@ -406,9 +394,7 @@ To make your server private so that people can't push to Docker Registry you
 can sign in with the credentials in `domain/$DOMAIN/users.json`:
 
 ```
-cat << EOF > domain/$DOMAIN/users.json
 {"admin": "secret"}
-EOF
 ```
 
 **CAUTION: Use your own username and password, `admin` and `secret` are too

@@ -8,6 +8,8 @@ See also: [https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-envvar
 
 We'll use environment variables to configure everything. Note that setting one of these environment variables overrides any data in `.aws`. Only explicit command line flags can override the environment variables.
 
+To get your credentials, go to the AWS web console and go to IAM -> Users -> Select yourself -> Security Credentials tab -> Create Access Key.
+
 When using bash, these variables will be available only in your current terminal:
 
 ```
@@ -15,7 +17,7 @@ When using bash, these variables will be available only in your current terminal
 export AWS_ACCESS_KEY_ID=XXX
 # Essentially a password, replace with your secret access key from the AWS web console
 export AWS_SECRET_ACCESS_KEY=XXX
-# If you choose a different region, you'll need to find the correct `--image-id` option for the `run-instances` command below.
+# Below eu-west-1 is Ireland. If you choose a different region, you'll also need to find the correct `--image-id` option for the `run-instances` command later in these instructions.
 export AWS_DEFAULT_REGION=eu-west-1
 export AWS_DEFAULT_OUTPUT=json
 ```
@@ -39,7 +41,8 @@ echo "Created new security group ${GROUP_ID}"
 aws ec2 authorize-security-group-ingress --group-name devenv-sg --protocol tcp --port 22 --cidr 0.0.0.0/0
 aws ec2 authorize-security-group-ingress --group-name devenv-sg --protocol tcp --port 80 --cidr 0.0.0.0/0
 aws ec2 authorize-security-group-ingress --group-name devenv-sg --protocol tcp --port 443 --cidr 0.0.0.0/0
-# Create a key pair
+# Create a key pair which will allow you to SSH into the server you create
+# CAUTION: If you lose the `devenv-key.pem` file you are about to create you can't get it again, you won't be able to log into any servers created with it.
 aws ec2 create-key-pair --key-name devenv-key --query 'KeyMaterial' --output text > devenv-key.pem
 # Make it secure
 chmod 400 devenv-key.pem
@@ -47,15 +50,24 @@ chmod 400 devenv-key.pem
 export INSTANCE_ID=`aws ec2 run-instances --image-id ami-09f0b8b3e41191524 --security-group-ids "${GROUP_ID}" --count 1 --instance-type t2.micro --key-name devenv-key --query 'Instances[0].InstanceId' --output text`
 echo "Your instance ID is ${INSTANCE_ID}."
 
+# EC2_PUBLIC_IP set next is a public, static IP you will always be able to use to access your instance (even after restarts) but it will be lost if you terminate the instance
 export EC2_PUBLIC_IP=`aws ec2 describe-instances --instance-ids "$INSTANCE_ID" --query 'Reservations[0].Instances[0].PublicIpAddress' --output=text`
 echo "Your instance is will be online at ${EC2_PUBLIC_IP} in a minute or two."
 ```
+
+Now set up your DNS A records. Make it so that www.${DOMAIN} and ${DOMAIN} both have `A` records pointing to ${EC2_PUBLIC_IP}.
+
+If you've recently used the domain, you may need to wait until its expiry time for the internet to notice the change.
+
+XXX Add instructions for this.
 
 You can now log in with:
 
 ```
 ssh -i devenv-key.pem ubuntu@$EC2_PUBLIC_IP
 ```
+
+**NOTE: The `ubuntu` user you signed in with above has `sudo` access without a password.**
 
 You may have to run this if you get a warning:
 
@@ -65,15 +77,15 @@ sudo locale-gen en_GB.UTF-8
 
 ## Docker Compose
 
-
 Once you have safely SSHed into the server, you can set about installing Docker and Docker Compose from the server's terminal.
 
-Install docker:
+Install docker from the official Docker repositories (not from the slightly less up-to-date Ubuntu ones):
 
 ```
 sudo apt update -y
 sudo apt upgrade -y
 sudo apt install -y apt-transport-https ca-certificates curl software-properties-common
+# Trust Docker, add their GPG key to apt so we can use their repo.
 curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo apt-key add -
 sudo add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu bionic stable"
 sudo apt update -y
@@ -83,7 +95,9 @@ Now check the candidate for Docker comes from the `download.docker.com` repo
 and install it:
 
 ```
+# You should see the `Version Table` list download.docker.com as the source for `docker-ce`:
 apt-cache policy docker-ce
+# Install `docker-ce`
 sudo apt install -y docker-ce
 sudo systemctl status docker
 ```
@@ -93,7 +107,8 @@ Don't require sudo with docker:
 ```
 sudo usermod -aG docker ${USER}
 sudo su - ${USER}
-id -nG
+# Check that `docker` appears below:
+id -nG | grep docker
 docker ps
 ```
 

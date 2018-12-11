@@ -1,5 +1,6 @@
 const Command = require('commander').Command
 const basicAuth = require('express-basic-auth')
+const chokidar = require('chokidar')
 const debug = require('debug')('gateway-lite')
 const express = require('express')
 const fs = require('fs')
@@ -38,21 +39,11 @@ const command = (args) => {
   const domainDir = program.domain || 'domain'
   let httpsOptions
   if (program.httpsPort || program.key || program.cert || program.dhparam) {
-    try {
-      const key = fs.readFileSync(program.key || path.join(cwd, 'private.key'), {encoding: 'utf8'})
-      const cert = fs.readFileSync(program.cert || path.join(cwd, 'certificate.pem'), {encoding: 'utf8'})
-      let dhparam
-      if (program.dhparam) {
-        dhparam = fs.readFileSync(program.dhparam, {encoding: 'utf8'})
-      }
-      const httpsPort = program.httpsPort || 443
-      httpsOptions = {key, cert, dhparam, httpsPort}
-    } catch (e) {
-      const msg = 'WARNING: Not using HTTPS, could not set up the options.'
-      console.error(msg, 'See DEBUG=gateway-lite log for more details')
-      debug(e)
-      debug(msg)
-    }
+    const httpsPort = program.httpsPort || 443
+    const msg = `Configured for HTTPS on ${httpsPort}.`
+    console.log(msg)
+    debug(msg)
+    httpsOptions = {key: program.key, cert: program.cert, dhparam: program.dhparam, httpsPort}
   } else {
     const msg = 'No HTTPS options specified so not serving on HTTPS port'
     console.log(msg)
@@ -192,7 +183,7 @@ async function domainApp (domainDir, domain, httpOptions, httpsOptions) {
           proxyReqOpts.headers['X-Forwarded-Proto'] = req.protocol
           return proxyReqOpts
         },
-        timeout: 2*60*1000
+        timeout: 2 * 60 * 1000
       }))
       debug('    Set up', proxyPaths[i][0], '->', proxyPaths[i][1])
     }
@@ -205,8 +196,8 @@ async function domainApp (domainDir, domain, httpOptions, httpsOptions) {
   return app
 }
 
-function getRandomInt(max) {
-  return Math.floor(Math.random() * Math.floor(max));
+function getRandomInt (max) {
+  return Math.floor(Math.random() * Math.floor(max))
 }
 
 async function main () {
@@ -227,7 +218,7 @@ async function main () {
   // let j = schedule.scheduleJob('42 * * * * *', function(){
 
   schedule.scheduleJob('0 */12 * * *', function () {
-    const wait = getRandomInt(12*60*60)
+    const wait = getRandomInt(12 * 60 * 60)
     console.log(`Attempting certificate renewal in ${wait} seconds (so on average twice per day with a lot of variation) ...`)
     setTimeout(
       () => {
@@ -270,44 +261,86 @@ async function main () {
     }
   })
 
+  chokidar.watch(domainDir).on('change', async (event, path) => {
+    const msg = 'Changed files, could really do with reload. ...'
+    console.log(msg)
+    debug(msg)
+  })
+
   const secureContext = {}
   const app = express()
   for (let d = 0; d < dirs.length; d++) {
     const domain = dirs[d]
+    if (domain === 'localhost') {
+      debug('SKipping domain', domain)
+      continue
+    }
     debug('Adding domain', domain)
     shell.mkdir('-p', path.join(domainDir, domain, 'sni'))
     const certs = shell.ls(path.join(domainDir, domain, 'sni', '*.pem'))
     debug('  ' + certs.length + ' certificates found')
     if (certs.length < 2) {
-      try {
-        await new Promise((resolve, reject) => {
-          debug('  Attempting to get a Let\'s Encrypt certificate for', domain)
-          let cmd = `certbot certonly --webroot -w "domain/${domain}/webroot" -d "${domain}" -n -m "${email}" --agree-tos`
-          if (staging) {
-            cmd += ' --staging'
-          }
-          debug('  ' + cmd)
-          shell.exec(cmd, {async: true, stdio: 'inherit'}, function (code, stdout, stderr) {
-            if (code !== 0) {
-              console.log('  Failed to get certificate for', domain)
-              debug('  Failed to get certificate for', domain)
-              reject(new Error('Failed to get certificate for ' + domain))
-            } else {
-              debug('  Got new certificate for ' + domain)
-              try {
-                shell.cp(`/etc/letsencrypt/live/${domain}/fullchain.pem`, path.join(domainDir, domain, 'sni', 'cert.pem'))
-                shell.cp(`/etc/letsencrypt/live/${domain}/privkey.pem`, path.join(domainDir, domain, 'sni', 'key.pem'))
-                resolve(true)
-              } catch (e) {
-                reject(e)
-              }
+      let fixed = false
+      shell.cp(`/etc/letsencrypt/live/${domain}/fullchain.pem`, path.join(domainDir, domain, 'sni', 'cert.pem'))
+      if (shell.error()) {
+        debug('Could not copy', `/etc/letsencrypt/live/${domain}/fullchain.pem`)
+      } else {
+        shell.cp(`/etc/letsencrypt/live/${domain}/privkey.pem`, path.join(domainDir, domain, 'sni', 'key.pem'))
+        if (shell.error()) {
+          debug('Could not copy', `/etc/letsencrypt/live/${domain}/provkey.pem`)
+        } else {
+          fixed = true
+        }
+      }
+      if (fixed) {
+        let msg = `Added an exiting set of certificates for ${domain}.`
+        debug(msg)
+        console.log(msg)
+      }
+      if (!fixed) {
+        try {
+          fixed = await new Promise((resolve, reject) => {
+            debug('  Attempting to get a Let\'s Encrypt certificate for', domain)
+            let cmd = `certbot certonly --webroot -w "domain/${domain}/webroot" -d "${domain}" -n -m "${email}" --agree-tos`
+            if (staging) {
+              cmd += ' --staging'
             }
+            debug('  ' + cmd)
+            shell.exec(cmd, {async: true, stdio: 'inherit'}, function (code, stdout, stderr) {
+              if (code !== 0) {
+                console.log('  Failed to get certificate for', domain)
+                debug('  Failed to get certificate for', domain)
+                reject(new Error('Failed to get certificate for ' + domain))
+              } else {
+                debug('  Got new certificate for ' + domain)
+                let fixed = false
+                shell.cp(`/etc/letsencrypt/live/${domain}/fullchain.pem`, path.join(domainDir, domain, 'sni', 'cert.pem'))
+                if (shell.error()) {
+                  debug('Could not copy', `/etc/letsencrypt/live/${domain}/fullchain.pem`)
+                  reject()
+                } else {
+                  shell.cp(`/etc/letsencrypt/live/${domain}/privkey.pem`, path.join(domainDir, domain, 'sni', 'key.pem'))
+                  if (shell.error()) {
+                    debug('Could not copy', `/etc/letsencrypt/live/${domain}/provkey.pem`)
+		    reject()
+                  } else {
+                    resolve(true)
+                  }
+                }
+              }
+            })
           })
-        })
-      } catch (e) {
-        console.log(e)
+          if (fixed === true) {
+            let msg = `Added an exiting set of certificates for ${domain}.`
+            debug(msg)
+            console.log(msg)
+          }
+        } catch (e) {
+          console.log(e)
+        }
       }
     }
+
     debug('Checking https options ...')
     if (httpsOptions) {
       try {
@@ -333,7 +366,18 @@ async function main () {
   }
 
   if (httpsOptions) {
-    const {key, cert, dhparam} = httpsOptions
+    let key, cert, dhparam
+    try {
+      key = fs.readFileSync(httpsOptions.key || path.join(cwd, 'private.key'), {encoding: 'utf8'})
+      cert = fs.readFileSync(httpsOptions.cert || path.join(cwd, 'certificate.pem'), {encoding: 'utf8'})
+      if (httpsOptions.dhparam) {
+        dhparam = fs.readFileSync(httpsOptions.dhparam, {encoding: 'utf8'})
+      }
+    } catch (e) {
+      debug(e)
+      console.error('Could not load SSL certficates.')
+      process.exit(1)
+    }
     const options = {
       SNICallback: function (domain, cb) {
         debug('Secure context requested for', domain)
@@ -367,18 +411,6 @@ async function main () {
           debug(`Listening for HTTPS requests on port ${httpsOptions.httpsPort}`)
         }
       })
-      // debug(options)
-      // internal/stream_base_commons.js:62 var err = req.handle.writev(req, chunks, allBuffers);
-      // spdy
-      // .createServer(options, app)
-      // .listen(httpsPort, (error) => {
-      //   if (error) {
-      //     debug('Error:', error)
-      //     return process.exit(1)
-      //   } else {
-      //     debug(`Listening for HTTPS and HTTP 2 requests on port ${httpsPort}`)
-      //   }
-      // })
     } catch (e) {
       debug(`Could not serve HTTPS on port ${httpOptions.httpsPort}`, e)
     }
