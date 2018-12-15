@@ -90,7 +90,7 @@ This defines all the users who can sign into the system.
 
 ```
 [
-  ["/v2/", "registry:5000"],
+  ["/v2", "registry:5000/v2"],
   ["/", "hello:8000/world"]
 ]
 ```
@@ -485,6 +485,10 @@ See:
 * https://tosbourn.com/getting-os-x-to-trust-self-signed-ssl-certificates/
 
 ## Changelog
+
+### 0.2.4
+
+* Removed `nodemon`
 
 ### 0.2.3 2018-12-15
 
