@@ -1,6 +1,6 @@
-const Command = require('commander').Command
 const basicAuth = require('express-basic-auth')
 const chokidar = require('chokidar')
+const dashdash = require('dashdash')
 const debug = require('debug')('gateway-lite')
 const express = require('express')
 const fs = require('fs')
@@ -13,37 +13,124 @@ const shell = require('shelljs')
 const tls = require('tls')
 const vhost = require('vhost')
 
+process.on('SIGINT', function () {
+  console.log('Exiting ...')
+  process.exit()
+})
+
 const cwd = process.cwd()
 
 const command = (args) => {
-  const program = new Command()
+  const options = [
+    {
+      name: 'domain',
+      type: 'string',
+      help: 'Base path to the all the domain directories',
+      helpArg: 'DIR',
+    },
+    {
+      name: 'key',
+      type: 'string',
+      help: 'Path to the HTTPS private key',
+      helpArg: 'PATH',
+    },
+    {
+      name: 'cert',
+      type: 'string',
+      help: 'Path to the HTTPS certificate',
+      helpArg: 'PATH',
+    },
+    {
+      name: 'port',
+      type: 'string',
+      help: 'Port for HTTP, defaults to 80',
+      helpArg: 'PORT',
+    },
+    {
+      name: 'https-port',
+      type: 'string',
+      help: 'Port for HTTPS, defaults to 443',
+      helpArg: 'PORT',
+    },
+    {
+      name: 'email',
+      type: 'string',
+      help: `An email that has agreed to the Let's Encrypt terms and is used for the Let's Encrypt account`,
+      helpArg: 'EMAIL',
+    },
+    {
+      name: 'lets-encrypt',
+      type: 'bool',
+      help: `Use Let's Encrypt to create missing certificates, and renew older Let's Encrypt certificates before expiry`,
+      default: false,
+    },
+    {
+      name: 'staging',
+      type: 'bool',
+      help: `Use the Let's Encrypt staging server`,
+      default: false,
+    },
+    {
+      name: 'proxy',
+      type: 'string',
+      help: `Proxy sepc`,
+      helpArg: 'SPEC',
+      default: '{}',
+    },
+    {
+      name: 'redirect',
+      type: 'string',
+      help: `Redirect sepc`,
+      helpArg: 'SPEC',
+      default: '{}',
+    },
+    {
+      name: 'user',
+      type: 'string',
+      help: `User sepc`,
+      helpArg: 'SPEC',
+      default: '{}',
+    }
+  ]
 
-  program
-  .version('0.2.2')
-  .option('--domain [dir]', `Base path to the all the domain directories`)
-  .option('--key [path]', 'Path to the HTTPS private key, defaults to private.key in the current directory')
-  .option('--cert [path]', 'Path to the HTTPS certificate, defaults to certificate.pem in the current directory')
-  .option('--dhparam [path]', 'Path to the DH Params file')
-  .option('--port [port]', 'Port for HTTP, defaults to 80')
-  .option('--https-port [port]', 'Port for HTTPS, defaults to 443')
-  .option('--staging', `Use the Let's Encrypt staging server`, true)
-  .arguments('<email>')
-  program.parse(args)
-  if (program.args.length !== 1) {
-    console.error('No email that has agreed to the Let\'s Encrypt terms was specified')
-    shell.exit(1)
+  const parser = dashdash.createParser({options: options})
+  let opts
+  try {
+    opts = parser.parse(args)
+  } catch (e) {
+    console.error('gateway-lite: error: %s', e.message)
+    process.exit(1)
   }
-  const email = program.args[0]
+
+  if (opts.help) {
+    const help = parser.help({includeEnv: true}).trimRight()
+    console.log('usage: gateway-lite [OPTIONS]\n' + 'options:\n' + help)
+    process.exit(0)
+  }
+
+  const program = opts
+  program.letsEncrypt = opts.lets_encrypt
+  program.httpsPort = opts.https_port
+
+  // console.log('cmd:', program)
+  // console.log('args:', opts._args)
+
   const port = program.port || 80
   const httpOptions = {port}
   const domainDir = program.domain || 'domain'
+  const proxy = JSON.parse(program.proxy)
+  const user = JSON.parse(program.user)
+  const redirect = JSON.parse(program.redirect)
+  debug('PROXY', proxy)
+  debug('user', user)
+  debug('redirect', redirect)
   let httpsOptions
-  if (program.httpsPort || program.key || program.cert || program.dhparam) {
+  if (program.httpsPort || program.key || program.cert) {
     const httpsPort = program.httpsPort || 443
     const msg = `Configured for HTTPS on ${httpsPort}.`
     console.log(msg)
     debug(msg)
-    httpsOptions = {key: program.key, cert: program.cert, dhparam: program.dhparam, httpsPort}
+    httpsOptions = {key: program.key, cert: program.cert, httpsPort, proxy, user, redirect}
   } else {
     const msg = 'No HTTPS options specified so not serving on HTTPS port'
     console.log(msg)
@@ -55,7 +142,12 @@ const command = (args) => {
   } else {
     debug('Let\'s encrypt live mode')
   }
-  return {email, httpOptions, httpsOptions, domainDir, staging}
+  const email = program.email
+  const letsEncrypt = program.letsEncrypt || false
+  if (letsEncrypt && !email) {
+    throw new Error('Please use --email when using --lets-encrypt')
+  }
+  return {email, letsEncrypt, staging, httpOptions, httpsOptions, domainDir}
 }
 
 const makeRedirectorHandler = (httpOptions, httpsOptions) => {
@@ -88,35 +180,54 @@ const makeRedirectorHandler = (httpOptions, httpsOptions) => {
 }
 
 async function domainApp (domainDir, domain, httpOptions, httpsOptions) {
-  const redirectsFile = path.join(domainDir, domain, 'redirects.json')
-
   let redirects = {}
-  try {
-    if (fs.existsSync(redirectsFile)) {
-      redirects = JSON.parse(fs.readFileSync(redirectsFile))
-    }
-  } catch (e) {
-    debug('  Error:', e)
-  }
-
-  const proxyFile = path.join(domainDir, domain, 'proxy.json')
   let proxyPaths = []
-  try {
-    if (fs.existsSync(proxyFile)) {
-      proxyPaths = JSON.parse(fs.readFileSync(proxyFile))
-    }
-  } catch (e) {
-    debug('  Error:', e)
-  }
-
-  const usersFile = path.join(domainDir, domain, 'users.json')
   let users = {}
   try {
-    if (fs.existsSync(usersFile)) {
-      users = JSON.parse(fs.readFileSync(usersFile))
+    const redirectsFile = path.join(domainDir, domain, 'redirects.json')
+    try {
+      if (fs.existsSync(redirectsFile)) {
+        redirects = JSON.parse(fs.readFileSync(redirectsFile))
+      }
+    } catch (e) {
+      debug('  Error:', e)
     }
+    const r = httpsOptions.redirect[domain] || []
+    for (let i = 0; i < r.length; i++) {
+      redirects.push(r[i])
+    }
+    debug(domain, redirects)
+
+    const proxyFile = path.join(domainDir, domain, 'proxy.json')
+    try {
+      if (fs.existsSync(proxyFile)) {
+        proxyPaths = JSON.parse(fs.readFileSync(proxyFile))
+      }
+    } catch (e) {
+      debug('  Error:', e)
+    }
+    const p = httpsOptions.proxy[domain] || []
+    for (let i = 0; i < p.length; i++) {
+      proxyPaths.push(p[i])
+    }
+    debug(domain, proxyPaths)
+
+    const usersFile = path.join(domainDir, domain, 'users.json')
+    try {
+      if (fs.existsSync(usersFile)) {
+        users = JSON.parse(fs.readFileSync(usersFile))
+      }
+    } catch (e) {
+      debug('  Error:', e)
+    }
+    const u = httpsOptions.user[domain] || []
+    for (let i = 0; i < u.length; i++) {
+      users.push(u[i])
+    }
+    debug(domain, users)
   } catch (e) {
-    debug('  Error:', e)
+    debug(e)
+    console.error(e)
   }
 
   const app = express()
@@ -144,12 +255,18 @@ async function domainApp (domainDir, domain, httpOptions, httpsOptions) {
     // this can mess with the behaviour above
     debug(`  Setting up ${proxyPaths.length} proxy path(s)`)
     for (let i = 0; i < proxyPaths.length; i++) {
-      const [reqPath, downstream, options] = proxyPaths[i]
-      debug('   ', reqPath, downstream, options)
+      let [reqPath, downstream, options] = proxyPaths[i]
+      let path = '/'
+      const parts = downstream.split('/')
+      if (parts.length > 0) {
+        path = '/' + parts.slice(1, parts.length).join('/')
+        downstream = parts[0]
+      }
+      debug('   ', reqPath, downstream, path, options)
       if (proxyPaths[i].length > 3) {
         throw new Error('Too many items in the array for downstream server ' + proxyPaths[i])
       }
-      const {auth = false, limit = '500mb', path, ...rest} = options || {}
+      const {auth = false, limit = '500mb', ...rest} = options || {}
       if (Object.keys(rest).length) {
         throw new Error('Unexpected extra options: ' + Object.keys({ rest }).join(', '), 'for downstream server ' + proxyPaths[i])
       }
@@ -201,71 +318,100 @@ function getRandomInt (max) {
 }
 
 async function main () {
-  const {email, staging, httpOptions, httpsOptions, domainDir} = command(process.argv)
+  const {letsEncrypt, email, staging, httpOptions, httpsOptions, domainDir} = command(process.argv)
 
-  // const help = `
-  // (*)   *    *    *    *    *
-  //  ┬    ┬    ┬    ┬    ┬    ┬
-  //  │    │    │    │    │    │
-  //  │    │    │    │    │    └ day of week (0 - 7) (0 or 7 is Sun)
-  //  │    │    │    │    └───── month (1 - 12)
-  //  │    │    │    └────────── day of month (1 - 31)
-  //  │    │    └─────────────── hour (0 - 23)
-  //  │    └──────────────────── minute (0 - 59)
-  //  └───────────────────────── second (0 - 59, OPTIONAL)
-  // `
-  // console.log(help)
-  // let j = schedule.scheduleJob('42 * * * * *', function(){
-
-  schedule.scheduleJob('0 */12 * * *', function () {
-    const wait = getRandomInt(12 * 60 * 60)
-    console.log(`Attempting certificate renewal in ${wait} seconds (so on average twice per day with a lot of variation) ...`)
-    setTimeout(
-      () => {
-        shell.exec('certbot -q renew', function (code, stdout, stderr) {
-          console.log('Exit code:', code)
-          console.log('Program output:', stdout)
-          console.log('Program stderr:', stderr)
-          if (code !== 0) {
-            shell.echo('Error: Failed to renew certificates')
-          }
-        })
-      },
-      wait * 1000
-    )
-  })
-
-  const dirs = fs.readdirSync(domainDir)
-
-  const httpApp = express()
-  for (let d = 0; d < dirs.length; d++) {
-    const domain = dirs[d]
-    const vhostApp = express()
-    vhostApp.disable('x-powered-by')
-    const webrootStaticDir = path.join(domainDir, domain, 'webroot')
-    const wellKnown = path.join(webrootStaticDir, '.well-known')
-    vhostApp.use('/.well-known', express.static(wellKnown))
-    debug('  Serving /.well-known from', wellKnown)
-    // This is to redirect to https://www.
-    vhostApp.use(makeRedirectorHandler(httpOptions, httpsOptions))
-    debug('  Set up redirectorHandler')
-    httpApp.use(vhost(domain, vhostApp))
+  const dirs = []
+  const possDirs = fs.readdirSync(domainDir)
+  for (let i = 0; i < possDirs.length; i++) {
+    const stat = fs.statSync(path.join(domainDir, possDirs[i]))
+    if (stat && stat.isDirectory()) {
+      dirs.push(possDirs[i])
+    }
   }
 
-  http.createServer(httpApp).listen(httpOptions.port, (error) => {
-    if (error) {
-      debug('Error:', error)
-      return process.exit(1)
-    } else {
-      debug(`Listening for HTTP requests on port ${httpOptions.port}`)
-    }
-  })
+  if (letsEncrypt) {
+    // const help = `
+    // (*)   *    *    *    *    *
+    //  ┬    ┬    ┬    ┬    ┬    ┬
+    //  │    │    │    │    │    │
+    //  │    │    │    │    │    └ day of week (0 - 7) (0 or 7 is Sun)
+    //  │    │    │    │    └───── month (1 - 12)
+    //  │    │    │    └────────── day of month (1 - 31)
+    //  │    │    └─────────────── hour (0 - 23)
+    //  │    └──────────────────── minute (0 - 59)
+    //  └───────────────────────── second (0 - 59, OPTIONAL)
+    // `
+    // console.log(help)
+    // let j = schedule.scheduleJob('42 * * * * *', function(){
 
-  chokidar.watch(domainDir).on('change', async (event, path) => {
-    const msg = 'Changed files, could really do with reload. ...'
-    console.log(msg)
-    debug(msg)
-  })
+    schedule.scheduleJob('0 */12 * * *', function () {
+      const wait = getRandomInt(12 * 60 * 60)
+      console.log(`Attempting certificate renewal in ${wait} seconds (so on average twice per day with a lot of variation) ...`)
+      setTimeout(
+        () => {
+          shell.exec('certbot -q renew', function (code, stdout, stderr) {
+            console.log('Exit code:', code)
+            console.log('Program output:', stdout)
+            console.log('Program stderr:', stderr)
+            if (code !== 0) {
+              shell.echo('Error: Failed to renew certificates')
+            }
+          })
+        },
+        wait * 1000
+      )
+    })
+
+    const httpApp = express()
+    for (let d = 0; d < dirs.length; d++) {
+      const domain = dirs[d]
+      const vhostApp = express()
+      vhostApp.disable('x-powered-by')
+      const webrootStaticDir = path.join(domainDir, domain, 'webroot')
+      const wellKnown = path.join(webrootStaticDir, '.well-known')
+      vhostApp.use('/.well-known', express.static(wellKnown))
+      debug('  Serving /.well-known from', wellKnown)
+      // This is to redirect to https://www.
+      vhostApp.use(makeRedirectorHandler(httpOptions, httpsOptions))
+      debug('  Set up redirectorHandler')
+      httpApp.use(vhost(domain, vhostApp))
+    }
+
+    http.createServer(httpApp).listen(httpOptions.port, (error) => {
+      if (error) {
+        debug('Error:', error)
+        return process.exit(1)
+      } else {
+        debug(`Listening for HTTP requests on port ${httpOptions.port}`)
+      }
+    })
+
+    chokidar.watch(domainDir).on('change', async (event, path) => {
+      const msg = 'Changed files, could really do with reload. ...'
+      console.log(msg)
+      debug(msg)
+    })
+  } else {
+    const httpApp = express()
+    for (let d = 0; d < dirs.length; d++) {
+      const domain = dirs[d]
+      const vhostApp = express()
+      vhostApp.disable('x-powered-by')
+      // This is to redirect to https://www.
+      vhostApp.use(makeRedirectorHandler(httpOptions, httpsOptions))
+      debug('  Set up redirectorHandler')
+      httpApp.use(vhost(domain, vhostApp))
+    }
+
+    http.createServer(httpApp).listen(httpOptions.port, (error) => {
+      if (error) {
+        debug('Error:', error)
+        return process.exit(1)
+      } else {
+        debug(`Listening for HTTP requests on port ${httpOptions.port}`)
+      }
+    })
+  }
 
   const secureContext = {}
   const app = express()
@@ -280,63 +426,66 @@ async function main () {
     const certs = shell.ls(path.join(domainDir, domain, 'sni', '*.pem'))
     debug('  ' + certs.length + ' certificates found')
     if (certs.length < 2) {
-      let fixed = false
-      shell.cp(`/etc/letsencrypt/live/${domain}/fullchain.pem`, path.join(domainDir, domain, 'sni', 'cert.pem'))
-      if (shell.error()) {
-        debug('Could not copy', `/etc/letsencrypt/live/${domain}/fullchain.pem`)
-      } else {
-        shell.cp(`/etc/letsencrypt/live/${domain}/privkey.pem`, path.join(domainDir, domain, 'sni', 'key.pem'))
+      if (letsEncrypt) {
+        let fixed = false
+        shell.cp(`/etc/letsencrypt/live/${domain}/fullchain.pem`, path.join(domainDir, domain, 'sni', 'cert.pem'))
         if (shell.error()) {
-          debug('Could not copy', `/etc/letsencrypt/live/${domain}/provkey.pem`)
+          debug('Could not copy', `/etc/letsencrypt/live/${domain}/fullchain.pem`)
         } else {
-          fixed = true
+          shell.cp(`/etc/letsencrypt/live/${domain}/privkey.pem`, path.join(domainDir, domain, 'sni', 'key.pem'))
+          if (shell.error()) {
+            debug('Could not copy', `/etc/letsencrypt/live/${domain}/provkey.pem`)
+          } else {
+            fixed = true
+          }
         }
-      }
-      if (fixed) {
-        let msg = `Added an exiting set of certificates for ${domain}.`
-        debug(msg)
-        console.log(msg)
-      }
-      if (!fixed) {
-        try {
-          fixed = await new Promise((resolve, reject) => {
-            debug('  Attempting to get a Let\'s Encrypt certificate for', domain)
-            let cmd = `certbot certonly --webroot -w "domain/${domain}/webroot" -d "${domain}" -n -m "${email}" --agree-tos`
-            if (staging) {
-              cmd += ' --staging'
-            }
-            debug('  ' + cmd)
-            shell.exec(cmd, {async: true, stdio: 'inherit'}, function (code, stdout, stderr) {
-              if (code !== 0) {
-                console.log('  Failed to get certificate for', domain)
-                debug('  Failed to get certificate for', domain)
-                reject(new Error('Failed to get certificate for ' + domain))
-              } else {
-                debug('  Got new certificate for ' + domain)
-                let fixed = false
-                shell.cp(`/etc/letsencrypt/live/${domain}/fullchain.pem`, path.join(domainDir, domain, 'sni', 'cert.pem'))
-                if (shell.error()) {
-                  debug('Could not copy', `/etc/letsencrypt/live/${domain}/fullchain.pem`)
-                  reject()
+        if (fixed) {
+          let msg = `Added an exiting set of certificates for ${domain}.`
+          debug(msg)
+          console.log(msg)
+        }
+        if (!fixed) {
+          try {
+            fixed = await new Promise((resolve, reject) => {
+              debug('  Attempting to get a Let\'s Encrypt certificate for', domain)
+              let cmd = `certbot certonly --webroot -w "domain/${domain}/webroot" -d "${domain}" -n -m "${email}" --agree-tos`
+              if (staging) {
+                cmd += ' --staging'
+              }
+              debug('  ' + cmd)
+              shell.exec(cmd, {async: true, stdio: 'inherit'}, function (code, stdout, stderr) {
+                if (code !== 0) {
+                  console.log('  Failed to get certificate for', domain)
+                  debug('  Failed to get certificate for', domain)
+                  reject(new Error('Failed to get certificate for ' + domain))
                 } else {
-                  shell.cp(`/etc/letsencrypt/live/${domain}/privkey.pem`, path.join(domainDir, domain, 'sni', 'key.pem'))
+                  debug('  Got new certificate for ' + domain)
+                  shell.cp(`/etc/letsencrypt/live/${domain}/fullchain.pem`, path.join(domainDir, domain, 'sni', 'cert.pem'))
                   if (shell.error()) {
-                    debug('Could not copy', `/etc/letsencrypt/live/${domain}/provkey.pem`)
-		    reject()
+                    let msg = `Could not copy '/etc/letsencrypt/live/${domain}/fullchain.pem'`
+                    debug(msg)
+                    reject(new Error(msg))
                   } else {
-                    resolve(true)
+                    shell.cp(`/etc/letsencrypt/live/${domain}/privkey.pem`, path.join(domainDir, domain, 'sni', 'key.pem'))
+                    if (shell.error()) {
+                      let msg = `Could not copy '/etc/letsencrypt/live/${domain}/provkey.pem'`
+                      debug(msg)
+                      reject(msg)
+                    } else {
+                      resolve(true)
+                    }
                   }
                 }
-              }
+              })
             })
-          })
-          if (fixed === true) {
-            let msg = `Added an exiting set of certificates for ${domain}.`
-            debug(msg)
-            console.log(msg)
+            if (fixed === true) {
+              let msg = `Added an exiting set of certificates for ${domain}.`
+              debug(msg)
+              console.log(msg)
+            }
+          } catch (e) {
+            console.log(e)
           }
-        } catch (e) {
-          console.log(e)
         }
       }
     }
@@ -366,13 +515,10 @@ async function main () {
   }
 
   if (httpsOptions) {
-    let key, cert, dhparam
+    let key, cert
     try {
       key = fs.readFileSync(httpsOptions.key || path.join(cwd, 'private.key'), {encoding: 'utf8'})
       cert = fs.readFileSync(httpsOptions.cert || path.join(cwd, 'certificate.pem'), {encoding: 'utf8'})
-      if (httpsOptions.dhparam) {
-        dhparam = fs.readFileSync(httpsOptions.dhparam, {encoding: 'utf8'})
-      }
     } catch (e) {
       debug(e)
       console.error('Could not load SSL certficates.')
@@ -397,8 +543,7 @@ async function main () {
       },
       // Must list a default key and cert because required by tls.createServer()
       key,
-      cert,
-      dhparam
+      cert
     }
     try {
       https

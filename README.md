@@ -4,6 +4,11 @@ An HTTP/HTTPS frontend express server for proxying to plain HTTP backends.
 Supports multiple domains, redirect, proxy paths, basic auth and automatic Lets
 Encrypt certificates.
 
+Currently only designed for URLs structures like this:
+
+* www.example.com
+* www.example.localhost
+
 Designed to to be able to replace Nginx in your deployment.
 Express is much easier to work with in many circumstances than Nginx so it
 might well be easier to get the configuration you need using this project as a
@@ -18,7 +23,7 @@ in this structure with one directory for each domain you want to support:
 
 ```
 domain/
-├─── localhost
+├─── www.example.localhost
 │   ├── proxy.json
 │   ├── redirects.json
 │   ├── sni
@@ -86,7 +91,7 @@ This defines all the users who can sign into the system.
 ```
 [
   ["/v2/", "registry:5000"],
-  ["/", "hello:8000"]
+  ["/", "hello:8000/world"]
 ]
 ```
 
@@ -100,13 +105,14 @@ bottom, so if you had put the `hello` before `registry`, then registry would
 never be accessible - all paths start with `/`, so `/v2/` would never be
 checked.
 
+Because a path is specifed for `"hello:8000/world"`, requests to `/` will go to
+`hello:8000/world/`.
+
 The third argument is optional, but if specified can have these keys:
 
 * `auth` - can be `false` (default) to mean no security is added or `true` to
   mean the user has to sign in with a credential in `users.json` to be able to
   access the route
-* `path` - specifies the target path for the downstream server, the default is
-  to use the same path that the request was made with
 * `limit` - the maximum size of an incoming request specified in
   [bytes.js](https://www.npmjs.com/package/bytes) format
 
@@ -127,7 +133,7 @@ the browser* or clear your cache. Closing the tab is not enough.**
 
 ```
 npm install
-DEBUG=gateway-lite npm start -- --https-port 3000 --port 8001 --cert domain/localhost/sni/cert.pem --key domain/localhost/sni/key.pem --domain domain james@example.com
+DEBUG=gateway-lite npm start -- --https-port 3000 --port 8001 --cert domain/www.example.localhost/sni/cert.pem --key domain/www.example.localhost/sni/key.pem --domain domain --lets-encrypt --email james@example.com
 ```
 
 The certificates you sepcify here are used if a SNI match can't be found to use
@@ -145,7 +151,7 @@ cd downstream
 npm start
 ```
 
-Now visit http://localhost:8001/some-path and after being redirected to `/` and
+Now visit http://www.example.localhost:8001/some-path and after being redirected to `/` and
 signing in with `admin` and `supersecret` you should see the `Hello!`
 message proxied from the downstream server, along with the path:
 
@@ -174,14 +180,14 @@ At this point you should be able to run a gateway.
 
 Get a terminal running on the machine on which you want to run the gateway for carrying out these next steps.
 
-Write this to a `docker-compose.yml` file on the machine, replacing `james@example.com` with an email address that has accepted the Let's Encrypt terms (who will receive any messages from Let's Encrypt) and `localhost` with your real domain name (e.g. `example.com`):
+Write this to a `docker-compose.yml` file on the machine, replacing `james@example.com` with an email address that has accepted the Let's Encrypt terms (who will receive any messages from Let's Encrypt) and `www.example.localhost` with your real domain name.
 
 ```
 version: "3"
 services:
   gateway:
     restart: unless-stopped
-    image: thejimmyg/gateway-lite:0.2.2
+    image: thejimmyg/gateway-lite:0.2.3
     ports:
       - "80:80"
       - "443:443"
@@ -190,7 +196,7 @@ services:
       - ./letsencrypt:/etc/letsencrypt
     environment:
       DEBUG: gateway-lite,express-http-proxy
-    command: ["--https-port", "443", "--port", "80", "--cert", "domain/localhost/sni/cert.pem", "--key", "domain/localhost/sni/key.pem", "--domain", "domain", "james@example.com"]
+    command: ["--https-port", "443", "--port", "80", "--cert", "domain/www.example.localhost/sni/cert.pem", "--key", "domain/www.example.localhost/sni/key.pem", "--domain", "domain", "--lets-encrypt", "--email", "james@example.com"]
 ```
 
 It is OK to run Docker Compose from your user's home directory for example.
@@ -239,7 +245,7 @@ running, as well as to start up automatically when you reboot.
 You'll see this initially as part of the output from the first boot:
 
 ```
-gateway_1  | 2018-12-07T15:44:24.857Z gateway-lite Error: ENOENT: no such file or directory, open 'domain/localhost/sni/key.pem'
+gateway_1  | 2018-12-07T15:44:24.857Z gateway-lite Error: ENOENT: no such file or directory, open 'domain/www.example.localhost/sni/key.pem'
 gateway_1  |     at Object.openSync (fs.js:436:3)
 gateway_1  |     ...
 ```
@@ -352,7 +358,7 @@ services:
       - ./letsencrypt:/etc/letsencrypt
     environment:
       DEBUG: gateway-lite,express-http-proxy
-    command: ["--https-port", "443", "--port", "80", "--cert", "domain/localhost/sni/cert.pem", "--key", "domain/localhost/sni/key.pem", "--domain", "domain"]
+    command: ["--https-port", "443", "--port", "80", "--cert", "domain/www.example.localhost/sni/cert.pem", "--key", "domain/www.example.localhost/sni/key.pem", "--domain", "domain", "--lets-encrypt", "--email", "james@example.com"]
     links:
       - hello:hello
       - registry:registry
@@ -449,7 +455,45 @@ server with Docker Compose because can't pull from the registry automatically
 if the registry itself isn't running.
 
 
+## Development
+
+```
+export DOMAIN=www.example.localhost
+mkdir -p domain/$DOMAIN/sni/
+openssl req -x509 -out domain/$DOMAIN/sni/cert.pem -keyout domain/$DOMAIN/sni/key.pem \
+  -newkey rsa:2048 -nodes -sha256 \
+  -subj "/CN=$DOMAIN" -extensions EXT -config <( \
+   printf "[dn]\nCN=$DOMAIN\n[req]\ndistinguished_name = dn\n[EXT]\nsubjectAltName=DNS:$DOMAIN\nkeyUsage=digitalSignature\nextendedKeyUsage=serverAuth")
+```
+
+Repeat this for:
+
+```
+export DOMAIN=example.localhost
+```
+
+Then add `example.localhost` and `www.example.localhost` to `/etc/hosts` under 127.0.0.1.
+
+Now you need to trust the certificate which you can do on most operating
+systems by double cliking the `cert.pem` file. On macOS you can add it to your login keychain. Just to be safe, best not to
+distribute it though once your browser has trusted it as others could use it.
+
+`curl` doesn't use system certifcates on macOS, but use `-k` to ignore security problems when testing locally.
+
+See:
+
+* https://tosbourn.com/getting-os-x-to-trust-self-signed-ssl-certificates/
+
 ## Changelog
+
+### 0.2.3 2018-12-15
+
+* Proxy paths are now part of the downstream argument, not an option
+* Added `--redirect`, `--proxy`, `--user` arguments (which apply after the file corresponding files are loaded
+* Using `dashdash` instead of `commander`
+* Removed support for dhparams
+* Now need `--lets-encrypt` option to enable the Let's Encrypt support
+* Moved downstream out to the `express-downstream` package
 
 ### 0.2.2 2018-12-11
 

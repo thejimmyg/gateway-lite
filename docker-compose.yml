@@ -14,7 +14,7 @@ services:
       - ./letsencrypt:/etc/letsencrypt
     environment:
       DEBUG: gateway-lite,express-http-proxy
-    command: ["--https-port", "443", "--port", "80", "--cert", "domain/localhost/sni/cert.pem", "--key", "domain/localhost/sni/key.pem", "--domain", "domain"]
+    command: ["--https-port", "443", "--port", "80", "--cert", "domain/www.example.localhost/sni/cert.pem", "--key", "domain/www.example.localhost/sni/key.pem", "--domain", "domain", "--lets-encrypt", "--email", "james@example.com"]
     links:
       - hello:hello
       - registry:registry

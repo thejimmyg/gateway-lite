@@ -22,4 +22,4 @@ ENV PATH="${PATH}:/app/node_modules/.bin"
 COPY bin/ /app/bin/
 #ENTRYPOINT ["nodemon", "-e", "bin/*js,domain/*", "bin/gateway-lite.js"]
 ENTRYPOINT ["node", "bin/gateway-lite.js"]
-CMD = []
+CMD []
