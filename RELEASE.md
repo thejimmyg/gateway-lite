@@ -3,7 +3,7 @@
 ## Version Numbers
 
 ```
-export OLD_VERSION=0.2.2
+export OLD_VERSION=0.2.3
 git grep $OLD_VERSION | grep -v "package-lock.json" | grep -v "### $OLD_VERSION" | grep -v "express-mustache-overlays" | grep -v "RELEASE.md"
 npm install  # To update package.json
 ```
@@ -16,7 +16,7 @@ Test by pushing to the `test` tag before deploying the final version.
 ```
 docker login
 export DOCKER_ID_USER="thejimmyg"
-export VERSION="0.2.3"
+export VERSION="0.2.4"
 docker build . -t "$DOCKER_ID_USER/gateway-lite:$VERSION"
 docker push "$DOCKER_ID_USER/gateway-lite:$VERSION"
 docker tag "$DOCKER_ID_USER/gateway-lite:$VERSION" "$DOCKER_ID_USER/gateway-lite:latest"

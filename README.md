@@ -187,7 +187,7 @@ version: "3"
 services:
   gateway:
     restart: unless-stopped
-    image: thejimmyg/gateway-lite:0.2.3
+    image: thejimmyg/gateway-lite:0.2.4
     ports:
       - "80:80"
       - "443:443"
@@ -486,9 +486,10 @@ See:
 
 ## Changelog
 
-### 0.2.4
+### 0.2.4 2018-12-16
 
 * Removed `nodemon`
+* Made lets encrypt code more reliable by making directories
 
 ### 0.2.3 2018-12-15
 

@@ -418,7 +418,7 @@ async function main () {
   for (let d = 0; d < dirs.length; d++) {
     const domain = dirs[d]
     if (domain === 'localhost') {
-      debug('SKipping domain', domain)
+      debug('Skipping domain', domain)
       continue
     }
     debug('Adding domain', domain)
@@ -448,7 +448,11 @@ async function main () {
           try {
             fixed = await new Promise((resolve, reject) => {
               debug('  Attempting to get a Let\'s Encrypt certificate for', domain)
-              let cmd = `certbot certonly --webroot -w "domain/${domain}/webroot" -d "${domain}" -n -m "${email}" --agree-tos`
+              const webroot = path.join(domainDir, domain, 'webroot')
+              shell.mkdir("-p", webroot)
+              const sni = path.join(domainDir, domain, 'sni')
+              shell.mkdir("-p", sni)
+              let cmd = `certbot certonly --webroot -w "${webroot}" -d "${domain}" -n -m "${email}" --agree-tos`
               if (staging) {
                 cmd += ' --staging'
               }
@@ -460,15 +464,15 @@ async function main () {
                   reject(new Error('Failed to get certificate for ' + domain))
                 } else {
                   debug('  Got new certificate for ' + domain)
-                  shell.cp(`/etc/letsencrypt/live/${domain}/fullchain.pem`, path.join(domainDir, domain, 'sni', 'cert.pem'))
+                  shell.cp(`/etc/letsencrypt/live/${domain}/fullchain.pem`, path.join(sni, 'cert.pem'))
                   if (shell.error()) {
                     let msg = `Could not copy '/etc/letsencrypt/live/${domain}/fullchain.pem'`
                     debug(msg)
                     reject(new Error(msg))
                   } else {
-                    shell.cp(`/etc/letsencrypt/live/${domain}/privkey.pem`, path.join(domainDir, domain, 'sni', 'key.pem'))
+                    shell.cp(`/etc/letsencrypt/live/${domain}/privkey.pem`, path.join(sni, 'key.pem'))
                     if (shell.error()) {
-                      let msg = `Could not copy '/etc/letsencrypt/live/${domain}/provkey.pem'`
+                      let msg = `Could not copy '/etc/letsencrypt/live/${domain}/privkey.pem'`
                       debug(msg)
                       reject(msg)
                     } else {
@@ -508,10 +512,10 @@ async function main () {
       } catch (e) {
         debug('Could not load certificates for domain', domain, e)
       }
+      debug('Setting up virtual hosts ...')
+      const vhostApp = await domainApp(domainDir, domain, httpOptions, httpsOptions)
+      app.use(vhost(domain, vhostApp))
     }
-    debug('Setting up virtual hosts ...')
-    const vhostApp = await domainApp(domainDir, domain, httpOptions, httpsOptions)
-    app.use(vhost(domain, vhostApp))
   }
 
   if (httpsOptions) {
