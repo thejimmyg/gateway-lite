@@ -486,7 +486,7 @@ See:
 
 ## Changelog
 
-### 0.2.5 2018-12-19
+### 0.2.5 2018-12-19
 
 * Support YAML for all the files, not just JSON
 * Changed the default `EXPOSE` ports in Docker to 80 and 443
