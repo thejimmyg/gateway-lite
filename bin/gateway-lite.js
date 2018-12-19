@@ -12,6 +12,7 @@ const schedule = require('node-schedule')
 const shell = require('shelljs')
 const tls = require('tls')
 const vhost = require('vhost')
+const yaml = require('js-yaml')
 
 process.on('SIGINT', function () {
   console.log('Exiting ...')
@@ -118,9 +119,9 @@ const command = (args) => {
   const port = program.port || 80
   const httpOptions = {port}
   const domainDir = program.domain || 'domain'
-  const proxy = JSON.parse(program.proxy)
-  const user = JSON.parse(program.user)
-  const redirect = JSON.parse(program.redirect)
+  const proxy = yaml.safeLoad(program.proxy)
+  const user = yaml.safeLoad(program.user)
+  const redirect = yaml.safeLoad(program.redirect)
   debug('PROXY', proxy)
   debug('user', user)
   debug('redirect', redirect)
@@ -187,7 +188,7 @@ async function domainApp (domainDir, domain, httpOptions, httpsOptions) {
     const redirectsFile = path.join(domainDir, domain, 'redirects.json')
     try {
       if (fs.existsSync(redirectsFile)) {
-        redirects = JSON.parse(fs.readFileSync(redirectsFile))
+        redirects = yaml.safeLoad(fs.readFileSync(redirectsFile))
       }
     } catch (e) {
       debug('  Error:', e)
@@ -201,7 +202,7 @@ async function domainApp (domainDir, domain, httpOptions, httpsOptions) {
     const proxyFile = path.join(domainDir, domain, 'proxy.json')
     try {
       if (fs.existsSync(proxyFile)) {
-        proxyPaths = JSON.parse(fs.readFileSync(proxyFile))
+        proxyPaths = yaml.safeLoad(fs.readFileSync(proxyFile))
       }
     } catch (e) {
       debug('  Error:', e)
@@ -215,7 +216,7 @@ async function domainApp (domainDir, domain, httpOptions, httpsOptions) {
     const usersFile = path.join(domainDir, domain, 'users.json')
     try {
       if (fs.existsSync(usersFile)) {
-        users = JSON.parse(fs.readFileSync(usersFile))
+        users = yaml.safeLoad(fs.readFileSync(usersFile))
       }
     } catch (e) {
       debug('  Error:', e)

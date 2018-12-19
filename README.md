@@ -187,7 +187,7 @@ version: "3"
 services:
   gateway:
     restart: unless-stopped
-    image: thejimmyg/gateway-lite:0.2.4
+    image: thejimmyg/gateway-lite:0.2.5
     ports:
       - "80:80"
       - "443:443"
@@ -485,6 +485,12 @@ See:
 * https://tosbourn.com/getting-os-x-to-trust-self-signed-ssl-certificates/
 
 ## Changelog
+
+### 0.2.5 2018-12-19
+
+* Support YAML for all the files, not just JSON
+* Changed the default `EXPOSE` ports in Docker to 80 and 443
+* Removed `DEFAULT_DOMAIN` from Dockerfile
 
 ### 0.2.4 2018-12-16
 
