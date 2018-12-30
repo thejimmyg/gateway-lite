@@ -10,25 +10,29 @@ services:
       - "80:80"
       - "443:443"
     volumes:
-      - ./domain:/app/domain
-      - ./letsencrypt:/etc/letsencrypt
+      - ./domain:/app/domain:rw
+      - ./letsencrypt:/etc/letsencrypt:rw
     environment:
-      DEBUG: gateway-lite,express-http-proxy
-    command: ["--https-port", "443", "--port", "80", "--cert", "domain/www.example.localhost/sni/cert.pem", "--key", "domain/www.example.localhost/sni/key.pem", "--domain", "domain", "--lets-encrypt", "--email", "james@example.com"]
+      DEBUG: gateway-lite
+    command: >
+      --https-port 443
+      --port 80
+      --cert domain/www.example.localhost/sni/cert.pem
+      --key domain/www.example.localhost/sni/key.pem
+      --proxy '
+        www.example.localhost:
+          - ["/", "downstream:80", {"limit": "100mb"}]
+      '
+      --domain domain
     links:
-      - hello:hello
-      - registry:registry
-  hello:
+      - downstream:downstream
+  downstream:
     restart: unless-stopped
-    image: thejimmyg/downstream:latest
-    ports:
-      - "8000:8000"
-  registry:
-    image: registry:2.6.2
-    restart: always
-    ports:
-      - 5000:5000
     environment:
-      REGISTRY_STORAGE_FILESYSTEM_ROOTDIRECTORY: /data
-    volumes:
-      - ./data:/data
+      PORT: 80
+      DEBUG: express-downstream,express-downstream:debug
+      NAME: "Downstream"
+      SCRIPT_NAME: ""
+    image: thejimmyg/express-downstream:0.1.2
+    expose:
+      - 80

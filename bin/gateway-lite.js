@@ -221,10 +221,7 @@ async function domainApp (domainDir, domain, httpOptions, httpsOptions) {
     } catch (e) {
       debug('  Error:', e)
     }
-    const u = httpsOptions.user[domain] || []
-    for (let i = 0; i < u.length; i++) {
-      users.push(u[i])
-    }
+    users = Object.assign({}, users, httpsOptions.user[domain] || {})
     debug(domain, users)
   } catch (e) {
     debug(e)
@@ -284,6 +281,14 @@ async function domainApp (domainDir, domain, httpOptions, httpsOptions) {
         parseReqBody: false,
         preserveHostHdr: true,
         https: false,
+        // skipToNextHandlerFilter: function(proxyRes) {
+        //   if (!fallThrough) {
+        //     return false
+        //   }
+        //   const decision = proxyRes.statusCode === 404
+        //   debug(`    Got response code ${proxyRes.statusCode} with fallThrough enabled. Skipping: ${decision}`)
+        //   return decision
+        // },
         proxyReqPathResolver: function (req) {
           if (path) {
             const target = path + req.originalUrl.slice(reqPath.length, req.originalUrl.length)

@@ -116,13 +116,12 @@ The third argument is optional, but if specified can have these keys:
 * `limit` - the maximum size of an incoming request specified in
   [bytes.js](https://www.npmjs.com/package/bytes) format
 
+Internally, the path you specify as the first argument is passed to `app.use()` not `app.all()` so that any sub-path is also proxied.
+
 **CAUTION: Proxying is *always* done over HTTP though, so make sure the hosts
 being proxied to are on a trusted network or the same computer otherwise
 security credentials etc will be sent unencrypted by the proxy to the
 destination server.**
-
-Note that the path gets mapped too, no way to map to a different path yet, so
-you can't have `/v2/` map to `/` yet).
 
 **NOTE: If you secure a route and sign in with Basic auth using the credentials
 in your `users.json` file, the browser saves your credentials until you *exit
@@ -187,7 +186,7 @@ version: "3"
 services:
   gateway:
     restart: unless-stopped
-    image: thejimmyg/gateway-lite:0.2.5
+    image: thejimmyg/gateway-lite:0.2.6
     ports:
       - "80:80"
       - "443:443"
@@ -485,6 +484,10 @@ See:
 * https://tosbourn.com/getting-os-x-to-trust-self-signed-ssl-certificates/
 
 ## Changelog
+
+### 0.2.6 2018-12-30
+
+* Correctly process YAML specified for the `--user` flag
 
 ### 0.2.5 2018-12-19
 
