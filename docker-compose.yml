@@ -1,5 +1,6 @@
 # This file can be used to build and run the gateway-lite container from the current source tree
 # See the README.md for normal use where you'll use the published docker image directly.
+# If you visit /cascade, the 4th route will match and you'll see the response from downstream.
 
 version: "3"
 services:
@@ -21,18 +22,54 @@ services:
       --key domain/www.example.localhost/sni/key.pem
       --proxy '
         www.example.localhost:
-          - ["/", "downstream:80", {"limit": "100mb"}]
+          - ["/working", "downstream:80/working", {"limit": "100mb"}]
+          - ["/", "notfound:80", {"limit": "100mb", "cascade": true}]
+          - ["/", "notfound:80", {"limit": "100mb", "cascade": true}]
+          - ["/", "downstream:80", {"limit": "100mb", "cascade": true}]
+          - ["/", "end:80", {"limit": "100mb"}]
       '
       --domain domain
     links:
+      - notfound:notfound
       - downstream:downstream
+  notfound:
+    restart: unless-stopped
+    environment:
+      PORT: 80
+      DEBUG: express-downstream
+      NAME: "Not Found"
+      SCRIPT_NAME: "/200"
+      PATH_404: "/"
+    image: thejimmyg/express-downstream:0.1.4
+    expose:
+      - 80
+    ports:
+      - "8079:80"
   downstream:
     restart: unless-stopped
     environment:
       PORT: 80
-      DEBUG: express-downstream,express-downstream:debug
+      DEBUG: express-downstream
       NAME: "Downstream"
       SCRIPT_NAME: ""
-    image: thejimmyg/express-downstream:0.1.2
+      PATH_404: "/404"
+      PATH_500: "/500"
+    image: thejimmyg/express-downstream:0.1.4
     expose:
       - 80
+    ports:
+      - "8080:80"
+  end:
+    restart: unless-stopped
+    environment:
+      PORT: 80
+      DEBUG: express-downstream
+      NAME: "End"
+      SCRIPT_NAME: ""
+      PATH_404: "/404"
+      PATH_500: "/500"
+    image: thejimmyg/express-downstream:0.1.4
+    expose:
+      - 80
+    ports:
+      - "8081:80"

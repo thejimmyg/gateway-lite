@@ -15,7 +15,12 @@ const vhost = require('vhost')
 const yaml = require('js-yaml')
 
 process.on('SIGINT', function () {
-  console.log('Exiting ...')
+  console.log('Received SIGINT. Exiting ...')
+  process.exit()
+})
+
+process.on('SIGTERM', function () {
+  console.log('Received SIGTERM. Exiting ...')
   process.exit()
 })
 
@@ -174,7 +179,7 @@ const makeRedirectorHandler = (httpOptions, httpsOptions) => {
       debug('Redirecting to URL:', url)
       res.redirect(url)
     } else {
-      debug('No redirection needed')
+      debug('No http->https or bare-domain->www redirection needed')
       next()
     }
   }
@@ -193,10 +198,7 @@ async function domainApp (domainDir, domain, httpOptions, httpsOptions) {
     } catch (e) {
       debug('  Error:', e)
     }
-    const r = httpsOptions.redirect[domain] || []
-    for (let i = 0; i < r.length; i++) {
-      redirects.push(r[i])
-    }
+    redirects = Object.assign({}, redirects, httpsOptions.redirect[domain] || {})
     debug(domain, redirects)
 
     const proxyFile = path.join(domainDir, domain, 'proxy.json')
@@ -264,15 +266,15 @@ async function domainApp (domainDir, domain, httpOptions, httpsOptions) {
       if (proxyPaths[i].length > 3) {
         throw new Error('Too many items in the array for downstream server ' + proxyPaths[i])
       }
-      const {auth = false, limit = '500mb', ...rest} = options || {}
+      const {auth = false, limit = '500mb', cascade=false, ...rest} = options || {}
       if (Object.keys(rest).length) {
-        throw new Error('Unexpected extra options: ' + Object.keys({ rest }).join(', '), 'for downstream server ' + proxyPaths[i])
+        throw new Error('Unexpected extra options: ' + Object.keys(rest).join(', '), 'for downstream server ' + proxyPaths[i])
       }
       if (auth) {
         debug(`    Set up ${Object.keys(users).length} auth user(s)`)
         app.use(reqPath, basicAuth({users, challenge: true}))
       }
-      app.use(reqPath, proxy(downstream, {
+      const proxyOpts = {
         limit: limit,
         // userResDecorator: function(proxyRes, proxyResData, userReq, userRes) {
         //   debug(proxyResData)
@@ -281,22 +283,13 @@ async function domainApp (domainDir, domain, httpOptions, httpsOptions) {
         parseReqBody: false,
         preserveHostHdr: true,
         https: false,
-        // skipToNextHandlerFilter: function(proxyRes) {
-        //   if (!fallThrough) {
-        //     return false
-        //   }
-        //   const decision = proxyRes.statusCode === 404
-        //   debug(`    Got response code ${proxyRes.statusCode} with fallThrough enabled. Skipping: ${decision}`)
-        //   return decision
-        // },
         proxyReqPathResolver: function (req) {
+          let target = req.originalUrl
           if (path) {
-            const target = path + req.originalUrl.slice(reqPath.length, req.originalUrl.length)
-            debug('>>>', req.originalUrl, reqPath, target)
-            return target
+            target = path + req.originalUrl.slice(reqPath.length, req.originalUrl.length)
           }
-          debug('>>>', req.originalUrl)
-          return req.originalUrl
+          debug('>>>', reqPath, domain + req.originalUrl, '->', downstream + target)
+          return target
         },
         proxyReqOptDecorator: function (proxyReqOpts, req) {
           const ip = req.ip.split(':')[3]
@@ -307,7 +300,26 @@ async function domainApp (domainDir, domain, httpOptions, httpsOptions) {
           return proxyReqOpts
         },
         timeout: 2 * 60 * 1000
-      }))
+      }
+      const middleware = []
+      if (cascade) {
+        // Strange bug in express-http-proxy that requires this set up to prevent the cascade continuing after this one has returned a 200 OK
+        middleware.push(
+          (req, res, next) => {
+            debug('Cascade triggered')
+          }
+        )
+        proxyOpts.skipToNextHandlerFilter = function(proxyRes) {
+          debug(`    Got response code ${proxyRes.statusCode} form ${domain} with cascade ${cascade}.`)
+          if (!cascade) {
+            return false
+          }
+          const decision = proxyRes.statusCode === 404
+          debug(`    Skipping: ${decision}`)
+          return decision
+        }
+      }
+      app.use(reqPath, proxy(downstream, proxyOpts), ...middleware)
       debug('    Set up', proxyPaths[i][0], '->', proxyPaths[i][1])
     }
   } else {
@@ -383,6 +395,24 @@ async function main () {
       httpApp.use(vhost(domain, vhostApp))
     }
 
+    // Must be after other routes - Handle 404
+    httpApp.get('*', (req, res) => {
+      res.status(404)
+      res.json({error:'404'})
+    })
+
+    // Error handler has to be last
+    httpApp.use(function (err, req, res, next) {
+      debug('Error:', err)
+      res.status(500)
+      try {
+        res.json({error: '500'})
+      } catch (e) {
+        debug('Error during rendering 500 page:', e)
+        res.send('Internal server error.')
+      }
+    })
+
     http.createServer(httpApp).listen(httpOptions.port, (error) => {
       if (error) {
         debug('Error:', error)
@@ -408,6 +438,24 @@ async function main () {
       debug('  Set up redirectorHandler')
       httpApp.use(vhost(domain, vhostApp))
     }
+
+    // Must be after other routes - Handle 404
+    httpApp.get('*', (req, res) => {
+      res.status(404)
+      res.json({error:'404'})
+    })
+
+    // Error handler has to be last
+    httpApp.use(function (err, req, res, next) {
+      debug('Error:', err)
+      res.status(500)
+      try {
+        res.json({error: '500'})
+      } catch (e) {
+        debug('Error during rendering 500 page:', e)
+        res.send('Internal server error.')
+      }
+    })
 
     http.createServer(httpApp).listen(httpOptions.port, (error) => {
       if (error) {
@@ -522,7 +570,26 @@ async function main () {
       const vhostApp = await domainApp(domainDir, domain, httpOptions, httpsOptions)
       app.use(vhost(domain, vhostApp))
     }
+
   }
+
+  // Must be after other routes - Handle 404
+  app.get('*', (req, res) => {
+    res.status(404)
+    res.json({error:'404'})
+  })
+
+  // Error handler has to be last
+  app.use(function (err, req, res, next) {
+    debug('Error:', err)
+    res.status(500)
+    try {
+      res.json({error: '500'})
+    } catch (e) {
+      debug('Error during rendering 500 page:', e)
+      res.send('Internal server error.')
+    }
+  })
 
   if (httpsOptions) {
     let key, cert

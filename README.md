@@ -115,6 +115,9 @@ The third argument is optional, but if specified can have these keys:
   access the route
 * `limit` - the maximum size of an incoming request specified in
   [bytes.js](https://www.npmjs.com/package/bytes) format
+* `cascade` - can be set to `true` to enable cascade behaviour. In this mode
+  if a downstream server returns a 404, Gateway Lite will simply try the next
+  downstream server
 
 Internally, the path you specify as the first argument is passed to `app.use()` not `app.all()` so that any sub-path is also proxied.
 
@@ -142,13 +145,7 @@ You can get further debugging with `DEBUG=gateway-lite,express-http-proxy`.
 
 If you need a `dhparam.pem` file, you can use the `--dhparam` flag.
 
-To test everything is working, run a server on port 8000, such as the one in
-`downstream/bin/downstream.js`:
-
-```
-cd downstream
-npm start
-```
+To test everything is working, run a server on port 8000. There is a suitable project called `express-downstream` but you could run any server.
 
 Now visit http://www.example.localhost:8001/some-path and after being redirected to `/` and
 signing in with `admin` and `supersecret` you should see the `Hello!`
@@ -186,7 +183,7 @@ version: "3"
 services:
   gateway:
     restart: unless-stopped
-    image: thejimmyg/gateway-lite:0.2.6
+    image: thejimmyg/gateway-lite:0.2.7
     ports:
       - "80:80"
       - "443:443"
@@ -483,7 +480,42 @@ See:
 
 * https://tosbourn.com/getting-os-x-to-trust-self-signed-ssl-certificates/
 
+## Tip
+
+You can also specify the redirects, users and proxy settings for each domain on
+the command line in YAML or JSON in your `docker-compose.yml` file. For
+example, you could add this to the existing `command:` section:
+
+```
+      --redirect '
+        www.example.localhost:
+          "/some": "/other"
+      '
+      --proxy '
+        www.example.localhost:
+          - ["/user", "signin/user", {"limit": "100mb"}]
+          - ["/", "markdown"]
+      '
+      --user '
+        www.example.localhost:
+          admin: "supersecret"
+      '
+```
+
+## Cascade
+
+
+
 ## Changelog
+
+### 0.2.7 2019-01-02
+
+* Support the `cascade` argument to the proxy args which, when set to `true` will act if the path was not present if it returns a 404, and will instead try subsequent routes
+* Simple 404 and 500 error logging
+* Respond to `SIGTERM` as well as `SIGNINT`
+* Upgrade `docker-compose.yml` to use `thejimmyg/express-downstream:0.1.4`
+* Added YAML command line config example to the docs
+* Removed `bin/downstream.js` now that there is [express-downstream](https://github.com/thejimmyg/express-downstream)
 
 ### 0.2.6 2018-12-30
 
