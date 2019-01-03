@@ -1,5 +1,6 @@
 const basicAuth = require('express-basic-auth')
 const chokidar = require('chokidar')
+const credential = require('credential')
 const dashdash = require('dashdash')
 const debug = require('debug')('gateway-lite')
 const express = require('express')
@@ -13,6 +14,7 @@ const shell = require('shelljs')
 const tls = require('tls')
 const vhost = require('vhost')
 const yaml = require('js-yaml')
+const { promisify } = require('util')
 
 process.on('SIGINT', function () {
   console.log('Received SIGINT. Exiting ...')
@@ -25,6 +27,15 @@ process.on('SIGTERM', function () {
 })
 
 const cwd = process.cwd()
+const pw = credential({ work: 0.1 })
+const hashAsync = promisify(pw.hash)
+const verifyAsync = promisify(pw.verify)
+
+async function validPassword (hash, password) {
+  const decoded = Buffer.from(hash, 'base64').toString('ascii')
+  const isValid = await verifyAsync(decoded, password)
+  return isValid
+}
 
 const command = (args) => {
   const options = [
@@ -32,70 +43,70 @@ const command = (args) => {
       name: 'domain',
       type: 'string',
       help: 'Base path to the all the domain directories',
-      helpArg: 'DIR',
+      helpArg: 'DIR'
     },
     {
       name: 'key',
       type: 'string',
       help: 'Path to the HTTPS private key',
-      helpArg: 'PATH',
+      helpArg: 'PATH'
     },
     {
       name: 'cert',
       type: 'string',
       help: 'Path to the HTTPS certificate',
-      helpArg: 'PATH',
+      helpArg: 'PATH'
     },
     {
       name: 'port',
       type: 'string',
       help: 'Port for HTTP, defaults to 80',
-      helpArg: 'PORT',
+      helpArg: 'PORT'
     },
     {
       name: 'https-port',
       type: 'string',
       help: 'Port for HTTPS, defaults to 443',
-      helpArg: 'PORT',
+      helpArg: 'PORT'
     },
     {
       name: 'email',
       type: 'string',
       help: `An email that has agreed to the Let's Encrypt terms and is used for the Let's Encrypt account`,
-      helpArg: 'EMAIL',
+      helpArg: 'EMAIL'
     },
     {
       name: 'lets-encrypt',
       type: 'bool',
       help: `Use Let's Encrypt to create missing certificates, and renew older Let's Encrypt certificates before expiry`,
-      default: false,
+      default: false
     },
     {
       name: 'staging',
       type: 'bool',
       help: `Use the Let's Encrypt staging server`,
-      default: false,
+      default: false
     },
     {
       name: 'proxy',
       type: 'string',
       help: `Proxy sepc`,
       helpArg: 'SPEC',
-      default: '{}',
+      default: '{}'
     },
     {
       name: 'redirect',
       type: 'string',
       help: `Redirect sepc`,
       helpArg: 'SPEC',
-      default: '{}',
+      default: '{}'
     },
     {
       name: 'user',
       type: 'string',
       help: `User sepc`,
       helpArg: 'SPEC',
-      default: '{}',
+      default: '{}'
     }
   ]
 
@@ -248,6 +259,12 @@ async function domainApp (domainDir, domain, httpOptions, httpsOptions) {
       res.status(302).send('Redirecting ...')
     })
     debug(`  Set up ${Object.keys(redirects).length} redirect(s)`)
+    for (let name of Object.keys(redirects)) {
+      if (!name.startsWith('/')) {
+        throw new Error(`Invalid path '${name}'. Expected redirect paths to start with a /.`)
+      }
+      debug(`    ${name} -> ${redirects[name]}`)
+    }
   }
 
   if (proxyPaths.length) {
@@ -266,13 +283,41 @@ async function domainApp (domainDir, domain, httpOptions, httpsOptions) {
       if (proxyPaths[i].length > 3) {
         throw new Error('Too many items in the array for downstream server ' + proxyPaths[i])
       }
-      const {auth = false, limit = '500mb', cascade=false, ...rest} = options || {}
+      const {auth = false, limit = '500mb', cascade = false, ...rest} = options || {}
       if (Object.keys(rest).length) {
         throw new Error('Unexpected extra options: ' + Object.keys(rest).join(', '), 'for downstream server ' + proxyPaths[i])
       }
       if (auth) {
         debug(`    Set up ${Object.keys(users).length} auth user(s)`)
-        app.use(reqPath, basicAuth({users, challenge: true}))
+        // app.use(reqPath, basicAuth({users, challenge: true}))
+        lowerCaseUsers = {}
+        for (let username in users) {
+          if (users.hasOwnProperty(username)) {
+            lowerCaseUsers[username.toLowerCase()] = users[username]
+          }
+        }
+        app.use(reqPath, basicAuth({ authorizeAsync: true,
+          challenge: true,
+          authorizer: (username, password, cb) => {
+            const lowerCaseUsername = username.toLowerCase()
+            const hashOrPassword = lowerCaseUsers[lowerCaseUsername]
+            if (hashOrPassword.length <= 64) {
+              debug('Using a password check')
+              cb(null, hashOrPassword === password)
+            } else {
+              debug('Using a hash check')
+              const decoded = Buffer.from(hashOrPassword, 'base64').toString('ascii')
+              verifyAsync(decoded, password)
+              .then(isValid => {
+                cb(null, isValid)
+              })
+              .catch(e => {
+                debug(e)
+                cb(e, null)
+              })
+            }
+          }
+        }))
       }
       const proxyOpts = {
         limit: limit,
@@ -293,11 +338,20 @@ async function domainApp (domainDir, domain, httpOptions, httpsOptions) {
         },
         proxyReqOptDecorator: function (proxyReqOpts, req) {
           const ip = req.ip.split(':')[3]
-          debug(ip, req.protocol)
-          proxyReqOpts.headers['X-Real-IP'] = ip
-          proxyReqOpts.headers['X-Forwarded-For'] = ip
+          debug('From', ip, 'using protocol:', req.protocol)
+          if (ip) {
+            proxyReqOpts.headers['X-Real-IP'] = ip
+            proxyReqOpts.headers['X-Forwarded-For'] = ip
+          }
           proxyReqOpts.headers['X-Forwarded-Proto'] = req.protocol
           return proxyReqOpts
+        },
+        proxyErrorHandler: function (err, res, next) {
+          switch (err && err.code) {
+            case 'ECONNRESET': { debug(err); return res.status(405).json({error: '405'}) }
+            case 'ECONNREFUSED': { debug(err); return res.status(504).json({error: '504'}) }
+            default: { next(err) }
+          }
         },
         timeout: 2 * 60 * 1000
       }
@@ -309,7 +363,7 @@ async function domainApp (domainDir, domain, httpOptions, httpsOptions) {
             debug('Cascade triggered')
           }
         )
-        proxyOpts.skipToNextHandlerFilter = function(proxyRes) {
+        proxyOpts.skipToNextHandlerFilter = function (proxyRes) {
           debug(`    Got response code ${proxyRes.statusCode} form ${domain} with cascade ${cascade}.`)
           if (!cascade) {
             return false
@@ -397,20 +451,13 @@ async function main () {
 
     // Must be after other routes - Handle 404
     httpApp.get('*', (req, res) => {
-      res.status(404)
-      res.json({error:'404'})
+      res.status(404).json({error: '404'})
     })
 
     // Error handler has to be last
     httpApp.use(function (err, req, res, next) {
       debug('Error:', err)
-      res.status(500)
-      try {
-        res.json({error: '500'})
-      } catch (e) {
-        debug('Error during rendering 500 page:', e)
-        res.send('Internal server error.')
-      }
+      res.status(500).json({error: '500'})
     })
 
     http.createServer(httpApp).listen(httpOptions.port, (error) => {
@@ -441,20 +488,13 @@ async function main () {
 
     // Must be after other routes - Handle 404
     httpApp.get('*', (req, res) => {
-      res.status(404)
-      res.json({error:'404'})
+      res.status(404).json({error: '404'})
     })
 
     // Error handler has to be last
     httpApp.use(function (err, req, res, next) {
       debug('Error:', err)
-      res.status(500)
-      try {
-        res.json({error: '500'})
-      } catch (e) {
-        debug('Error during rendering 500 page:', e)
-        res.send('Internal server error.')
-      }
+      res.status(500).json({error: '500'})
     })
 
     http.createServer(httpApp).listen(httpOptions.port, (error) => {
@@ -503,9 +543,9 @@ async function main () {
             fixed = await new Promise((resolve, reject) => {
               debug('  Attempting to get a Let\'s Encrypt certificate for', domain)
               const webroot = path.join(domainDir, domain, 'webroot')
-              shell.mkdir("-p", webroot)
+              shell.mkdir('-p', webroot)
               const sni = path.join(domainDir, domain, 'sni')
-              shell.mkdir("-p", sni)
+              shell.mkdir('-p', sni)
               let cmd = `certbot certonly --webroot -w "${webroot}" -d "${domain}" -n -m "${email}" --agree-tos`
               if (staging) {
                 cmd += ' --staging'
@@ -570,25 +610,17 @@ async function main () {
       const vhostApp = await domainApp(domainDir, domain, httpOptions, httpsOptions)
       app.use(vhost(domain, vhostApp))
     }
-
   }
 
   // Must be after other routes - Handle 404
   app.get('*', (req, res) => {
-    res.status(404)
-    res.json({error:'404'})
+    res.status(404).json({error: '404'})
   })
 
   // Error handler has to be last
   app.use(function (err, req, res, next) {
     debug('Error:', err)
-    res.status(500)
-    try {
-      res.json({error: '500'})
-    } catch (e) {
-      debug('Error during rendering 500 page:', e)
-      res.send('Internal server error.')
-    }
+    res.status(500).json({error: '500'})
   })
 
   if (httpsOptions) {

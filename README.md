@@ -82,6 +82,8 @@ A JSON file structured like this:
 {"admin": "supersecret"}
 ```
 
+Usernames are case insensitive, so it makes sense to specify them all as lowercase. Be careful not to add two keys with different cases as it is not guaranteed which associated password would be used.
+
 **CAUTION: Not terribly secure, plain passwords. But OK for now.**
 
 This defines all the users who can sign into the system.
@@ -135,7 +137,7 @@ the browser* or clear your cache. Closing the tab is not enough.**
 
 ```
 npm install
-DEBUG=gateway-lite npm start -- --https-port 3000 --port 8001 --cert domain/www.example.localhost/sni/cert.pem --key domain/www.example.localhost/sni/key.pem --domain domain --lets-encrypt --email james@example.com
+DEBUG=gateway-lite npm start -- --https-port 3000 --port 8001 --cert domain/www.example.localhost/sni/cert.pem --key domain/www.example.localhost/sni/key.pem --domain domain --lets-encrypt --email james@example.com --user='{"www.example.localhost": {"hello": "eyJoYXNoIjoiU2xkK2RwOGx3cFM1WDJzTHlnTUxmOXhNTlZ5NHV5UjZwK3pQTGhNLzJqMVRlRTF5Q1AxbURzQkpvSTFKRlBSd3V1akIrcng0aDhxNlJBNXRuRVlWUVNpWiIsInNhbHQiOiIwU3NIZnJDMEY1OUZZQmhHSnRKb2QvN3NMTzh3Um82Wm5mTnl6VThIeHYyV2FrdWd6dDhZc09nSDJwUHBiMnAxQlczU1BTWDN5L29GczlaN1NqTktpc2h3Iiwia2V5TGVuZ3RoIjo2NiwiaGFzaE1ldGhvZCI6InBia2RmMiIsIml0ZXJhdGlvbnMiOjcyNjIzfQ=="}}' --proxy='{"www.example.localhost": [["/auth", "localhost:8000/", {"auth": true}]]}' --redirect='{"www.example.localhost": {"/some-path": "/"}}'
 ```
 
 The certificates you sepcify here are used if a SNI match can't be found to use
@@ -147,16 +149,32 @@ If you need a `dhparam.pem` file, you can use the `--dhparam` flag.
 
 To test everything is working, run a server on port 8000. There is a suitable project called `express-downstream` but you could run any server.
 
-Now visit http://www.example.localhost:8001/some-path and after being redirected to `/` and
-signing in with `admin` and `supersecret` you should see the `Hello!`
-message proxied from the downstream server, along with the path:
+Now visit https://www.example.localhost:3000/some-path and after being redirected to `/` and
+you should see the message proxied from the downstream server.
+
+If you visit https://www.example.localhost:3000/auth you should be prompted to sign in. The username `hello` and password `world` should be accpeted:
 
 ```
-Hello!
-
-/
+curl -k -v -u hello:world https://www.example.localhost:3000/auth
+# A different case username works too:
+curl -k -v -u HeLlo:world https://www.example.localhost:3000/auth
 ```
 
+If you don't have a separate downstream server running you'll see `{"error":"504"}` instead. With the wrong password you'd see `HTTP/1.1 401 Unauthorized` in the response headers.
+
+You can use plain text passwords instead of the password hashes if you prefer, as long as they are less than or equal to 64 characters long. You can generate your own hashes by running this server, signing in with `hello` and `world` and visiting the hash generator at http://localhost:8000/hash
+
+```
+npm install express-mustache-jwt-signin
+cd node_modules/express-mustache-jwt-signin
+USERS_YML=yaml/users.yml MUSTACHE_DIRS="views-overlay" PUBLIC_FILES_DIRS="public-overlay" SCRIPT_NAME="" HTTPS_ONLY=false PORT=8000 SECRET='reallysecret' DEBUG=express-mustache-jwt-signin,express-mustache-jwt-signin:credentials,express-mustache-jwt-signin:hash,express-mustache-overlays npm start
+```
+
+Then return to the directory for gateway-lite with:
+
+```
+cd ../../
+```
 
 ## Docker Compose and Certbot
 
@@ -183,7 +201,7 @@ version: "3"
 services:
   gateway:
     restart: unless-stopped
-    image: thejimmyg/gateway-lite:0.2.7
+    image: thejimmyg/gateway-lite:0.2.8
     ports:
       - "80:80"
       - "443:443"
@@ -502,11 +520,15 @@ example, you could add this to the existing `command:` section:
       '
 ```
 
-## Cascade
-
-
 
 ## Changelog
+
+### 0.2.8 2019-01-03
+
+* Updated the README with `--proxy` and `--user` example
+* Added 405 and 504 HTTP JSON responses to handle ECONNRESET and ECONNREFUSED errors respectively
+* Updated `AWS.md` with information about setting up swap space and pruning Docker
+* Refactored auth handling so that user names are case insensitive, and passwords longer than 64 characters are treated as hashes as generated and used by `express-mustache-jwt-signin`
 
 ### 0.2.7 2019-01-02
 

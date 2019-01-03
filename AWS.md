@@ -75,6 +75,27 @@ You may have to run this if you get a warning:
 sudo locale-gen en_GB.UTF-8
 ```
 
+Add swap space so that your instance shouldn't run out of memory. This works by creating an area on your hard drive and using it for extra memory, this memory is much slower than normal memory however much more of it is available.
+
+To add this extra space to your instance you type:
+
+```
+sudo /bin/dd if=/dev/zero of=/var/swap.1 bs=1M count=1024
+sudo chmod 600 /var/swap.1
+sudo /sbin/mkswap /var/swap.1
+sudo /sbin/swapon /var/swap.1
+```
+
+If you need more than 1024 then change that to something higher.
+
+To enable it by default after reboot, add this line to /etc/fstab:
+
+```
+/var/swap.1   swap    swap    defaults        0   0
+```
+
+**Caution: When using Docker you need to keep an eye on memory usage, sometimes Docker can use all the memory on the system which can prevent SSH from working. If you find this happens, upgrade the memory on the machine or add more swap space.**
+
 ## Docker Compose
 
 Once you have safely SSHed into the server, you can set about installing Docker and Docker Compose from the server's terminal.
@@ -125,6 +146,25 @@ Now you can follow the instructions in the
 Compose file, creating the directory structures required and running a server.
 
 When you are done, exit the server.
+
+Tip: If you ever encounter an error like this:
+
+```
+ERROR: for git  Cannot start service git: driver failed programming external connectivity on endpoint ubuntu_git_1 (cb946a390de6d36b20676b1e5c7964aba2683a3f992380488023417db4473dbd): Bind for 0.0.0.0:8022 failed: port is already allocated
+ERROR: Encountered errors while bringing up the project.
+```
+
+You can often fix it with `docker-compose stop; sudo service docker restart; docker-compose up --force-recreate`
+
+Also, worth knowing is this command:
+
+```
+docker system prune --volumes --all
+```
+
+If your docker containers are all running, the above command will delete
+everything not already in use. Use with care!
+
 
 ## SMTP (SES)
 
