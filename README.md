@@ -115,11 +115,6 @@ The third argument is optional, but if specified can have these keys:
 * `auth` - can be `false` (default) to mean no security is added or `true` to
   mean the user has to sign in with a credential in `users.json` to be able to
   access the route
-* `limit` - the maximum size of an incoming request specified in
-  [bytes.js](https://www.npmjs.com/package/bytes) format
-* `cascade` - can be set to `true` to enable cascade behaviour. In this mode
-  if a downstream server returns a 404, Gateway Lite will simply try the next
-  downstream server
 
 Internally, the path you specify as the first argument is passed to `app.use()` not `app.all()` so that any sub-path is also proxied.
 
@@ -201,7 +196,7 @@ version: "3"
 services:
   gateway:
     restart: unless-stopped
-    image: thejimmyg/gateway-lite:0.2.8
+    image: thejimmyg/gateway-lite:0.2.9
     ports:
       - "80:80"
       - "443:443"
@@ -403,7 +398,7 @@ service. You do this with the `domain/$DOMAIN/proxy.json` file:
 
 ```
 [
-  ["/v2/", "registry:5000", {"auth": true, "limit": "900mb"}],
+  ["/v2/", "registry:5000", {"auth": true}],
   ["/", "hello:8000", {"path": "/"}]
 ]
 ```
@@ -511,7 +506,7 @@ example, you could add this to the existing `command:` section:
       '
       --proxy '
         www.example.localhost:
-          - ["/user", "signin/user", {"limit": "100mb"}]
+          - ["/user", "signin/user", {}]
           - ["/", "markdown"]
       '
       --user '
@@ -522,6 +517,14 @@ example, you could add this to the existing `command:` section:
 
 
 ## Changelog
+
+### 0.2.9 2019-01-10
+
+* Added the `gateway-lite` bin script, and added `#!/usr/bin/env node` to the top of `bin/gateway-lite.js`
+* Removed the `limit` and `cascade` options
+* Support websocket proxying
+* Switched `express-http-proxy` for `http-proxy-middleware`
+* Fixed a bug with unknown usernames
 
 ### 0.2.8 2019-01-03
 
