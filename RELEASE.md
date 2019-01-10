@@ -3,7 +3,7 @@
 ## Version Numbers
 
 ```
-export OLD_VERSION=0.2.8
+export OLD_VERSION=0.2.9
 git grep $OLD_VERSION | grep -v "package-lock.json" | grep -v "### $OLD_VERSION" | grep -v "express-mustache-overlays" | grep -v "RELEASE.md"
 npm install  # To update package.json
 ```

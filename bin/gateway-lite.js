@@ -10,7 +10,8 @@ const fs = require('fs')
 const http = require('http')
 const https = require('https')
 const path = require('path')
-const proxy = require('http-proxy-middleware')
+const wsProxy = require('http-proxy-middleware')
+const cascadeProxy = require('express-http-proxy')
 const schedule = require('node-schedule')
 const shell = require('shelljs')
 const tls = require('tls')
@@ -278,9 +279,18 @@ async function domainApp (domainDir, domain, httpOptions, httpsOptions) {
       if (proxyPaths[i].length > 3) {
         throw new Error('Too many items in the array for downstream server ' + proxyPaths[i])
       }
-      const {auth = false, ...rest} = options || {}
+      let {auth = false, limit, cascade = false, ws = false, ...rest} = options || {}
       if (Object.keys(rest).length) {
         throw new Error('Unexpected extra options: ' + Object.keys(rest).join(', '), 'for downstream server ' + proxyPaths[i])
+      }
+      if (ws && cascade ) {
+        throw new Error(`Cannot use 'cascade' with 'ws=true'`)
+      }
+      if (ws && limit ) {
+        throw new Error(`Cannot use 'limit' with 'ws=true'`)
+      }
+      if (typeof limit === 'undefined') {
+        limit = '500mb'
       }
       if (auth) {
         debug(`    Set up ${Object.keys(users).length} auth user(s)`)
@@ -316,34 +326,92 @@ async function domainApp (domainDir, domain, httpOptions, httpsOptions) {
           }
         }))
       }
-      const pathRewrite = {}
-      pathRewrite['^' + reqPath] = path
-      const proxyOpts = {
-        ws: true,
-        target: 'http://' + downstream,
-        pathRewrite,
-        // proxyTimeout: timeout,
-        // timeout: timeout,
-        onProxyReq: (proxyReq, req, res) => {
-          const ip = req.ip.split(':')[3]
-          debug('From', ip, 'using protocol:', req.protocol)
-          if (ip) {
-            proxyReq.setHeader('X-Real-IP', ip)
-            proxyReq.setHeader('X-Forwarded-For', ip)
-          }
-          proxyReq.setHeader('X-Forwarded-Proto', req.protocol)
-          debug('>>>', domain + reqPath, '->', downstream + path, req.originalUrl)
-        },
-        onError: (err, req, res) => {
-          switch (err && err.code) {
-            case 'ECONNRESET': { debug(err); return res.status(405).json({error: '405'}) }
-            case 'ECONNREFUSED': { debug(err); return res.status(504).json({error: '504'}) }
-            default: { debug(err); return res.status(500).json({error: '500'}) }
+      if (ws) {
+        const pathRewrite = {}
+        pathRewrite['^' + reqPath] = path
+        const proxyOpts = {
+          ws: true,
+          target: 'http://' + downstream,
+          pathRewrite,
+          // proxyTimeout: timeout,
+          // timeout: timeout,
+          onProxyReq: (proxyReq, req, res) => {
+            const ip = req.ip.split(':')[3]
+            debug('From', ip, 'using protocol:', req.protocol)
+            if (ip) {
+              proxyReq.setHeader('X-Real-IP', ip)
+              proxyReq.setHeader('X-Forwarded-For', ip)
+            }
+            proxyReq.setHeader('X-Forwarded-Proto', req.protocol)
+            debug('>>>', domain + reqPath, '->', downstream + path, req.originalUrl)
+          },
+          onError: (err, req, res) => {
+            switch (err && err.code) {
+              case 'ECONNRESET': { debug(err); return res.status(405).json({error: '405'}) }
+              case 'ECONNREFUSED': { debug(err); return res.status(504).json({error: '504'}) }
+              default: { debug(err); return res.status(500).json({error: '500'}) }
+            }
           }
         }
+        // Has to come last, it doesn't support next()
+        app.use(reqPath, wsProxy(proxyOpts))
+      } else {
+        const proxyOpts = {
+          limit: limit,
+          // userResDecorator: function(proxyRes, proxyResData, userReq, userRes) {
+          //   debug(proxyResData)
+          //   return proxyResData;
+          // },
+          parseReqBody: false,
+          preserveHostHdr: true,
+          https: false,
+          proxyReqPathResolver: function (req) {
+            let target = req.originalUrl
+            if (path) {
+              target = path + req.originalUrl.slice(reqPath.length, req.originalUrl.length)
+            }
+            debug('>>>', reqPath, domain + req.originalUrl, '->', downstream + target)
+            return target
+          },
+          proxyReqOptDecorator: function (proxyReqOpts, req) {
+            const ip = req.ip.split(':')[3]
+            debug('From', ip, 'using protocol:', req.protocol)
+            if (ip) {
+              proxyReqOpts.headers['X-Real-IP'] = ip
+              proxyReqOpts.headers['X-Forwarded-For'] = ip
+            }
+            proxyReqOpts.headers['X-Forwarded-Proto'] = req.protocol
+            return proxyReqOpts
+          },
+          proxyErrorHandler: function (err, res, next) {
+            switch (err && err.code) {
+              case 'ECONNRESET': { debug(err); return res.status(405).json({error: '405'}) }
+              case 'ECONNREFUSED': { debug(err); return res.status(504).json({error: '504'}) }
+              default: { next(err) }
+            }
+          },
+          timeout: 2 * 60 * 1000
+        }
+        const middleware = []
+        if (cascade) {
+          // Strange bug in express-http-proxy that requires this set up to prevent the cascade continuing after this one has returned a 200 OK
+          middleware.push(
+            (req, res, next) => {
+              debug('Cascade triggered')
+            }
+          )
+          proxyOpts.skipToNextHandlerFilter = function (proxyRes) {
+            debug(`    Got response code ${proxyRes.statusCode} form ${domain} with cascade ${cascade}.`)
+            if (!cascade) {
+              return false
+            }
+            const decision = proxyRes.statusCode === 404
+            debug(`    Skipping: ${decision}`)
+            return decision
+          }
+        }
+        app.use(reqPath, cascadeProxy(downstream, proxyOpts), ...middleware)
       }
-      // Has to come last, it doesn't support next()
-      app.use(reqPath, proxy(proxyOpts))
       debug('    Set up', proxyPaths[i][0], '->', proxyPaths[i][1])
     }
   } else {

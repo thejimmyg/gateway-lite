@@ -115,6 +115,13 @@ The third argument is optional, but if specified can have these keys:
 * `auth` - can be `false` (default) to mean no security is added or `true` to
   mean the user has to sign in with a credential in `users.json` to be able to
   access the route
+* `cascade` - can be set to `true` to enable cascade behaviour. In this mode
+  if a downstream server returns a 404, Gateway Lite will simply try the next
+  downstream server
+* `limit` - the maximum size of an incoming request specified in
+  [bytes.js](https://www.npmjs.com/package/bytes) format. Default is `500mb`.
+* `ws` - Whether to support websocket proxying too. Default is `false`. If
+   set to `true` you can't use the `limit` or `cascade` options
 
 Internally, the path you specify as the first argument is passed to `app.use()` not `app.all()` so that any sub-path is also proxied.
 
@@ -196,7 +203,7 @@ version: "3"
 services:
   gateway:
     restart: unless-stopped
-    image: thejimmyg/gateway-lite:0.2.9
+    image: thejimmyg/gateway-lite:0.2.10
     ports:
       - "80:80"
       - "443:443"
@@ -517,6 +524,10 @@ example, you could add this to the existing `command:` section:
 
 
 ## Changelog
+
+### 0.2.10 2019-01-10
+
+* Added `express-http-proxy` back in to support both cascade behaviour or web socket proxying, but not both for the same path at the same time
 
 ### 0.2.9 2019-01-10
 

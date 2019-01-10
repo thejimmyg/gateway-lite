@@ -44,7 +44,7 @@ services:
     expose:
       - 80
     ports:
-      - "8079:80"
+      - "8003:80"
   downstream:
     restart: unless-stopped
     environment:
@@ -58,7 +58,7 @@ services:
     expose:
       - 80
     ports:
-      - "8080:80"
+      - "8001:80"
   end:
     restart: unless-stopped
     environment:
@@ -72,4 +72,4 @@ services:
     expose:
       - 80
     ports:
-      - "8081:80"
+      - "8002:80"
