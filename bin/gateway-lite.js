@@ -103,6 +103,13 @@ const command = (args) => {
       help: `User sepc`,
       helpArg: 'SPEC',
       default: '{}'
+    },
+    {
+      name: 'pwa',
+      type: 'string',
+      help: `Progressive web app sepc`,
+      helpArg: 'SPEC',
+      default: '{}'
     }
   ]
 
@@ -134,16 +141,18 @@ const command = (args) => {
   const proxy = yaml.safeLoad(program.proxy)
   const user = yaml.safeLoad(program.user)
   const redirect = yaml.safeLoad(program.redirect)
+  const pwa = yaml.safeLoad(program.pwa)
   debug('PROXY', proxy)
   debug('user', user)
   debug('redirect', redirect)
+  debug('pwa', pwa)
   let httpsOptions
   if (program.httpsPort || program.key || program.cert) {
     const httpsPort = program.httpsPort || 443
     const msg = `Configured for HTTPS on ${httpsPort}.`
     console.log(msg)
     debug(msg)
-    httpsOptions = {key: program.key, cert: program.cert, httpsPort, proxy, user, redirect}
+    httpsOptions = {pwa, key: program.key, cert: program.cert, httpsPort, proxy, user, redirect}
   } else {
     const msg = 'No HTTPS options specified so not serving on HTTPS port'
     console.log(msg)
@@ -196,6 +205,7 @@ async function domainApp (domainDir, domain, httpOptions, httpsOptions) {
   let redirects = {}
   let proxyPaths = []
   let users = {}
+  let pwa = {}
   try {
     const redirectsFile = path.join(domainDir, domain, 'redirects.json')
     try {
@@ -222,6 +232,17 @@ async function domainApp (domainDir, domain, httpOptions, httpsOptions) {
     }
     debug(domain, proxyPaths)
 
+    const pwaFile = path.join(domainDir, domain, 'pwa.json')
+    try {
+      if (fs.existsSync(pwaFile)) {
+        pwa = yaml.safeLoad(fs.readFileSync(pwaFile))
+      }
+    } catch (e) {
+      debug('  Error:', e)
+    }
+    pwa = Object.assign({}, pwa, httpsOptions.pwa[domain] || {})
+    debug(domain, Object.keys(pwa).length ? 'PWA enabled' : 'No PWA')
+
     const usersFile = path.join(domainDir, domain, 'users.json')
     try {
       if (fs.existsSync(usersFile)) {
@@ -246,7 +267,7 @@ async function domainApp (domainDir, domain, httpOptions, httpsOptions) {
 
   if (Object.keys(redirects).length) {
     // If nothing has been matched, check the redirects and redirect the URL, keeping the query string.
-    app.get('*', async (req, res, next) => {
+    app.get('*', (req, res, next) => {
       const target = redirects[req._parsedUrl.pathname]
       if (!target) {
         return next()
@@ -261,6 +282,151 @@ async function domainApp (domainDir, domain, httpOptions, httpsOptions) {
       }
       debug(`    ${name} -> ${redirects[name]}`)
     }
+  }
+
+  const { manifestUrl = '/public/theme/manifest.json', serviceWorkerUrl = '/sw.js', name = 'App', shortName = 'app', display = 'standalone', startUrl = '/start', offlineUrl = '/offline', urlsToCache = [], backgroundColor = 'white', themeColor = '#000000', version = '0.1.0', defaultLocale = 'en', description = 'App', icon192Url = '/public/theme/icon192.png', icon192File = './icon192.png', icon512Url = '/public/theme/icon512.png', icon512File = './icon512.png' } = pwa
+  if (Object.keys(pwa).length) {
+    debug(`  Setting up service worker URL at ${serviceWorkerUrl}.`)
+    app.get(serviceWorkerUrl, async (req, res, next) => {
+      try {
+        const lookup = {startUrl, offlineUrl, icon512Url, icon192Url}
+        const filesToCache = [startUrl, offlineUrl, icon512Url, icon192Url]
+        for (let i = 0; i < urlsToCache.length; i++) {
+          filesToCache.push(urlsToCache[i][0])
+          lookup[urlsToCache[i][0]] = urlsToCache[i][0]
+          for (let j = 0; j < urlsToCache[i].length; j++) {
+            lookup[urlsToCache[i][j]] = urlsToCache[i][0]
+          }
+        }
+        // debug(filesToCache)
+        // debug(lookup)
+        res.type('application/javascript')
+        res.send(`// 2019-01-10, manifest version: ${version}
+var filesToCache = ${JSON.stringify(filesToCache)};
+var lookup = ${JSON.stringify(lookup)};
+
+self.addEventListener('install', function(event) {
+  var promises = [];
+  filesToCache.forEach(function(fileToCache) {
+    var offlineRequest = new Request(fileToCache);
+    console.log('Preparing fetch for', fileToCache);
+    promises.push(
+      fetch(offlineRequest).then(function(response) {
+        return caches.open('offline').then(function(cache) {
+          console.log('[oninstall] Cached offline page', response.url);
+          var r = cache.put(offlineRequest, response);
+          r.then(function(t) {
+            console.log('Fetched', t)
+          })
+          return r
+        });
+      })
+    )
+  })
+  event.waitUntil(Promise.all(promises).then(function(success) { self.skipWaiting() ; console.log('Finished populating the cache. Ready.'); return success }));
+});
+
+self.addEventListener('fetch', function(event) {
+  event.respondWith(
+    fetch(event.request)
+    .catch(function (error) {
+      return caches.open('offline')
+      .then(function(cache) {
+        var url = new URL(event.request.url)
+        var path = url.pathname
+        console.log('Investigating "' + path + '" found "'+ lookup[path] +'" from cache ...')
+        if (lookup[path]) {
+          console.log('Returning path "' + lookup[path] + '" for "'+ path +'" from cache ...')
+          return cache.match(lookup[path])
+        } else {
+          console.log('Returning "${offlineUrl}" for path "' + path + '" since it is not in the cache ...')
+          return cache.match('${offlineUrl}').then(function(r) {console.log(r); return r}).catch(function(e) {console.log(e)})
+        }
+      })
+    })
+  );
+});
+      `)
+      } catch (e) {
+        next(e)
+      }
+    })
+
+// var uniqueFilesToCache = [];
+// self.addEventListener('install', function(event) {
+//   // event.waitUntil(self.skipWaiting())
+//   var promises = [];
+//   filesToCache.forEach(function(fileToCache) {
+//     var offlineRequest = new Request(fileToCache[0]);
+//     console.log('Preparing fetch for', fileToCache[0]);
+//     promises.push(
+//       fetch(offlineRequest).then(function(response) {
+//         return caches.open('offline').then(function(cache) {
+//           const p = []
+//           var r = cache.put(offlineRequest, response).then(function(t) {
+//             console.log('Fetched', t)
+//           })
+//           p.push(r)
+//           fileToCache.slice(1, fileToCache.length).forEach(function(duplicate) {
+//             console.log('Preparing fetch for duplicate', fileToCache[0]);
+//             uniqueFilesToCache.push(duplicate)
+//             var fileOfflineRequest = new Request(duplicate);
+//             console.log('[oninstall] Cached offline page', response.url, 'as', duplicate);
+//             var r = cache.put(fileOfflineRequest, response).then(function(t) {
+//               console.log('Fetched', t)
+//             })
+//             p.push(r)
+//           })
+//           return Promise.all(p).then(function(all) { return all[0] })
+//         });
+//       })
+//     )
+//   })
+//   event.waitUntil(Promise.all(promises).then(function(success) { self.skipWaiting() ; console.log('Finished populating the cache. Ready.'); return success }));
+// });
+
+    debug(`  Setting up manifest at ${manifestUrl}.`)
+    app.get(manifestUrl, async (req, res, next) => {
+      try {
+        res.type('application/json')
+        res.json({
+          'manifest_version': 2,
+          name,
+          display,
+          start_url: startUrl,
+          background_color: backgroundColor,
+          theme_color: themeColor,
+          short_name: shortName,
+          version,
+          default_locale: defaultLocale,
+          description,
+          icons: [
+            {
+              src: icon192Url,
+              sizes: '192x192',
+              type: 'image/png'
+            },
+            {
+              src: icon512Url,
+              sizes: '512x512',
+              type: 'image/png'
+            }
+          ]
+        })
+      } catch (e) {
+        next(e)
+      }
+    })
+    const absIcon192File = path.normalize(path.join(process.cwd(), domainDir, domain, icon192File))
+    debug(`  Setting up ${icon192Url} -> ${absIcon192File} serve correctly`)
+    app.get(icon192Url, (req, res, next) => {
+      res.sendFile(absIcon192File)
+    })
+    const absIcon512File = path.normalize(path.join(process.cwd(), domainDir, domain, icon512File))
+    debug(`  Setting up ${icon512Url} -> ${absIcon512File} serve correctly`)
+    app.get(icon512Url, (req, res, next) => {
+      res.sendFile(absIcon512File)
+    })
   }
 
   if (proxyPaths.length) {
@@ -283,10 +449,10 @@ async function domainApp (domainDir, domain, httpOptions, httpsOptions) {
       if (Object.keys(rest).length) {
         throw new Error('Unexpected extra options: ' + Object.keys(rest).join(', '), 'for downstream server ' + proxyPaths[i])
       }
-      if (ws && cascade ) {
+      if (ws && cascade) {
         throw new Error(`Cannot use 'cascade' with 'ws=true'`)
       }
-      if (ws && limit ) {
+      if (ws && limit) {
         throw new Error(`Cannot use 'limit' with 'ws=true'`)
       }
       if (typeof limit === 'undefined') {

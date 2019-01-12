@@ -30,6 +30,7 @@ domain/
 │   │   ├── cert.pem
 │   │   └── key.pem
 │   ├── users.json
+│   ├── pwa.json
 │   └── webroot
 │       └── .well-known
 │           └── acme-challenge
@@ -87,6 +88,92 @@ Usernames are case insensitive, so it makes sense to specify them all as lowerca
 **CAUTION: Not terribly secure, plain passwords. But OK for now.**
 
 This defines all the users who can sign into the system.
+
+*`pwa.json`*
+
+If this file is present, we treat this domain as hosting a *progressive web app*. Specifically, Gateway Lite will:
+
+* Generate a service worker at `serviceWorkerUrl` (by default `/sw.js`) such that the start URL, offline URL and all the other URLs you need are cached for offline use
+* Generate an application manifest at `manifestUrl` (by default `manifest.json`)
+
+Together these will enable your website to be added to the home screen on Android and iOS as well as made into a Chrome app by Chrome or on Chromebooks.
+
+You'll also need to make sure all your pages have this script in them to load the service worker (where `/sw.js` matches the `serviceWorkerUrl` value:
+
+```
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/sw.js')
+  .then(function(reg) {
+    // registration worked
+    console.log('Registration succeeded. Scope is ' + reg.scope);
+  }).catch(function(error) {
+    // registration failed
+    console.log('Registration failed with ' + error);
+  });
+}
+```
+
+and that the head contains markup similar to the following but reflecting the real paths you are using:
+
+```
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<link rel="manifest" href="/public/theme/manifest.json">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="theme-color" content="#000000" />
+<link rel="apple-touch-icon" href="/public/theme/icon192.png">
+<link rel="icon" sizes="192x192" href="/public/theme/icon192.png">
+<link rel="shortcut icon" type="image/png" href="/public/theme/icon.png">
+```
+
+Here is a sample `pwa.json` you can customise:
+
+```
+{
+    "name": "My App",
+    "shortName": "myapp",
+    "display": "standalone",
+    "startUrl": "/start",
+    "offlineUrl": "/offline",
+    "serviceWorkerUrl": "/sw.js",
+    "manifestUrl": "/manifest.json",
+    "urlsToCache": [
+       ["/edit/public/theme/bootstrap.min.js", "/upload/public/theme/bootstrap.min.js"],
+       ["/edit/public/theme/icon.png"],
+    ],
+    "backgroundColor": "#fffff",
+    "themeColor": "#000000",
+    "version": "0.1.0",
+    "defaultLocale": "en",
+    "description": "An app",
+    "icon192Url": "/public/icon192.png",
+    "icon192File": "./icon192.png",
+    "icon512Url": "/public/icon512.png",
+    "icon512File": "./icon512.png"
+}
+```
+
+The `urlsToCache` option is where you specify all the extra resources your
+offline and start pages will need in order to render correctly when there is no
+network available. The 192 and 512 icons are served automatically, so you don't
+need to specify them again.
+
+Sometimes the same file is served at multiple URLs in your site. For each array
+in the array of arrays structure, the generated service worker only fetches a
+response for the first of each of the listed files and uses that cached
+response to serve the requests for the others. In the example above
+`/edit/public/theme/bootstrap.min.js` would be fetched and then cached by the
+browser as both `/edit/public/theme/bootstrap.min.js` and
+`/upload/public/theme/bootstrap.min.js` with only the one download.
+
+The `version` option is included in the served `/sw.js` file, so that when you
+change version number, all browsers will re-download the URLs they need.
+**Caution: If you forget to update the version number, some browsers might use
+old versions of those files, so update the version number any time any of the
+`urlsToCache`, `startUrl` or `offlineUrl` change.
+
+The icon files are automatically served from the domain directory (the one
+containing the `pwa.json` path).
 
 *`proxy.json`*
 
@@ -203,7 +290,7 @@ version: "3"
 services:
   gateway:
     restart: unless-stopped
-    image: thejimmyg/gateway-lite:0.2.10
+    image: thejimmyg/gateway-lite:0.2.11
     ports:
       - "80:80"
       - "443:443"
@@ -524,6 +611,10 @@ example, you could add this to the existing `command:` section:
 
 
 ## Changelog
+
+### 0.2.11 2019-01-12
+
+* Progressive web app support
 
 ### 0.2.10 2019-01-10
 
