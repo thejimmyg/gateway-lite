@@ -290,7 +290,7 @@ version: "3"
 services:
   gateway:
     restart: unless-stopped
-    image: thejimmyg/gateway-lite:0.2.11
+    image: thejimmyg/gateway-lite:0.2.12
     ports:
       - "80:80"
       - "443:443"
@@ -611,6 +611,10 @@ example, you could add this to the existing `command:` section:
 
 
 ## Changelog
+
+### 0.2.12 2019-01-12
+
+* Use the same PWA environment variables as `express-mustache-overlays` as defaults
 
 ### 0.2.11 2019-01-12
 

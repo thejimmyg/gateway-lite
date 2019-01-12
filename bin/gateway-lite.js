@@ -18,6 +18,7 @@ const tls = require('tls')
 const vhost = require('vhost')
 const yaml = require('js-yaml')
 const { promisify } = require('util')
+const { overlaysOptionsFromEnv } = require('express-mustache-overlays')
 
 process.on('SIGINT', function () {
   console.log('Received SIGINT. Exiting ...')
@@ -32,6 +33,7 @@ process.on('SIGTERM', function () {
 const cwd = process.cwd()
 const pw = credential({ work: 0.1 })
 const verifyAsync = promisify(pw.verify)
+const overlaysOptions = overlaysOptionsFromEnv()
 
 const command = (args) => {
   const options = [
@@ -284,7 +286,7 @@ async function domainApp (domainDir, domain, httpOptions, httpsOptions) {
     }
   }
 
-  const { manifestUrl = '/public/theme/manifest.json', serviceWorkerUrl = '/sw.js', name = 'App', shortName = 'app', display = 'standalone', startUrl = '/start', offlineUrl = '/offline', urlsToCache = [], backgroundColor = 'white', themeColor = '#000000', version = '0.1.0', defaultLocale = 'en', description = 'App', icon192Url = '/public/theme/icon192.png', icon192File = './icon192.png', icon512Url = '/public/theme/icon512.png', icon512File = './icon512.png' } = pwa
+  const { manifestUrl = (overlaysOptions.manifestUrl || '/public/theme/manifest.json'), serviceWorkerUrl = (overlaysOptions.serviceWorkerUrl || '/sw.js'), name = 'App', shortName = 'app', display = 'standalone', startUrl = '/start', offlineUrl = (overlaysOptions.offlineUrl || '/offline'), urlsToCache = [], backgroundColor = 'white', themeColor = '#000000', version = '0.1.0', defaultLocale = 'en', description = 'App', icon192Url = (overlaysOptions.icon192Url || '/public/theme/icon192.png'), icon192File = './icon192.png', icon512Url = '/public/theme/icon512.png', icon512File = './icon512.png' } = pwa
   if (Object.keys(pwa).length) {
     debug(`  Setting up service worker URL at ${serviceWorkerUrl}.`)
     app.get(serviceWorkerUrl, async (req, res, next) => {
