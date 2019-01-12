@@ -289,8 +289,8 @@ async function domainApp (domainDir, domain, httpOptions, httpsOptions) {
     debug(`  Setting up service worker URL at ${serviceWorkerUrl}.`)
     app.get(serviceWorkerUrl, async (req, res, next) => {
       try {
-        const lookup = {startUrl, offlineUrl, icon512Url, icon192Url}
-        const filesToCache = [startUrl, offlineUrl, icon512Url, icon192Url]
+        const lookup = {startUrl, offlineUrl, icon512Url, icon192Url, manifestUrl}
+        const filesToCache = [startUrl, offlineUrl, icon512Url, icon192Url, manifestUrl]
         for (let i = 0; i < urlsToCache.length; i++) {
           filesToCache.push(urlsToCache[i][0])
           lookup[urlsToCache[i][0]] = urlsToCache[i][0]
@@ -313,7 +313,7 @@ self.addEventListener('install', function(event) {
     promises.push(
       fetch(offlineRequest).then(function(response) {
         return caches.open('offline').then(function(cache) {
-          console.log('[oninstall] Cached offline page', response.url);
+          console.log('[oninstall] Cached offline page', response.url, response.status);
           var r = cache.put(offlineRequest, response);
           r.then(function(t) {
             console.log('Fetched', t)
