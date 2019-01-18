@@ -208,6 +208,7 @@ async function domainApp (domainDir, domain, httpOptions, httpsOptions) {
   let proxyPaths = []
   let users = {}
   let pwa = {}
+  let pwaEnabled = false
   try {
     const redirectsFile = path.join(domainDir, domain, 'redirects.json')
     try {
@@ -238,12 +239,16 @@ async function domainApp (domainDir, domain, httpOptions, httpsOptions) {
     try {
       if (fs.existsSync(pwaFile)) {
         pwa = yaml.safeLoad(fs.readFileSync(pwaFile))
+        pwaEnabled = true
       }
     } catch (e) {
       debug('  Error:', e)
     }
+    if ( typeof httpsOptions.pwa[domain] !== "undefined") {
+      pwaEnabled = true
+    }
     pwa = Object.assign({}, pwa, httpsOptions.pwa[domain] || {})
-    debug(domain, Object.keys(pwa).length ? 'PWA enabled' : 'No PWA')
+    debug(domain, pwaEnabled ? 'PWA enabled' : 'No PWA')
 
     const usersFile = path.join(domainDir, domain, 'users.json')
     try {
@@ -287,7 +292,7 @@ async function domainApp (domainDir, domain, httpOptions, httpsOptions) {
   }
 
   const { manifestUrl = (overlaysOptions.manifestUrl || '/public/theme/manifest.json'), serviceWorkerUrl = (overlaysOptions.serviceWorkerUrl || '/sw.js'), name = 'App', shortName = 'app', display = 'standalone', startUrl = '/start', networkErrorUrl = (overlaysOptions.networkErrorUrl || '/network-error'), urlsToCache = [], backgroundColor = 'white', themeColor = (overlaysOptions.themeColor || '#000000'), version = '0.1.0', defaultLocale = 'en', description = 'App', icon192Url = (overlaysOptions.icon192Url || '/public/theme/icon192.png'), icon192File = './icon192.png', icon512Url = '/public/theme/icon512.png', icon512File = './icon512.png' } = pwa
-  if (Object.keys(pwa).length) {
+  if (pwaEnabled) {
     debug(`  Setting up service worker URL at ${serviceWorkerUrl}.`)
     app.get(serviceWorkerUrl, async (req, res, next) => {
       try {

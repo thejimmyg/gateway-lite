@@ -222,21 +222,76 @@ in your `users.json` file, the browser saves your credentials until you *exit
 the browser* or clear your cache. Closing the tab is not enough.**
 
 
+## Set up a testing certificate
+
+For local testing, let's imagine you want to use the domain `www.example.localhost`.
+
+You can create certificates as described here:
+
+* https://letsencrypt.org/docs/certificates-for-localhost/
+
+You'll need to put them in the directory `domain/www.example.localhost/sni` in this example. Here's some code that does this:
+
+```
+mkdir -p domain/www.example.localhost/sni
+openssl req -x509 -out domain/www.example.localhost/sni/cert.pem -keyout domain/www.example.localhost/sni/key.pem \
+  -newkey rsa:2048 -nodes -sha256 \
+  -subj '/CN=www.example.localhost' -extensions EXT -config <( \
+   printf "[dn]\nCN=www.example.localhost\n[req]\ndistinguished_name = dn\n[EXT]\nsubjectAltName=DNS:www.example.localhost\nkeyUsage=digitalSignature\nextendedKeyUsage=serverAuth")
+```
+
+Now edit your `/etc/hosts` so that your domain really points to `127.0.0.1` for local testing. You should have a line that looks like this:
+
+```
+127.0.0.1	localhost www.example.localhost example.localhost
+```
+
+On macOS, to make the browsers trust this certificate follow these steps:
+
+* Visit the URL in chrome https://www.example.localhost:3000/
+* Click on `Not Secure` in the URL bar, and then on `Certificate (invalid)`
+* Drag the big certificate icon to your Desktop
+* Load `Keychain Access` (from your Applications->Utilitites folder or from Spotlight)
+* Click on `System` in the `Keychains` panel in the top right
+* Drag the certificate from your Desktop into the list of System certificates
+* Enter your password to approve the drag
+* Double click the certificate from the the location you dragged it to in the list
+* Expand the `Trust` section
+* Change `When using this certificate` from `Use System Defaults` to `Always Trust`. This changes the other dropdowns too.
+* Close the popup and enter your password again to confirm
+* Close `Keychain Access`
+* Visit the URL again in the browser
+
+The certificate should now be trusted in other browsers like Safari too (but won't be trusted by `curl`, you should use the `-k` option to curl to ignore invalid certificates).
+
 ## Install and Run
 
 ```
 npm install
-DEBUG=gateway-lite npm start -- --https-port 3000 --port 8001 --cert domain/www.example.localhost/sni/cert.pem --key domain/www.example.localhost/sni/key.pem --domain domain --lets-encrypt --email james@example.com --user='{"www.example.localhost": {"hello": "eyJoYXNoIjoiU2xkK2RwOGx3cFM1WDJzTHlnTUxmOXhNTlZ5NHV5UjZwK3pQTGhNLzJqMVRlRTF5Q1AxbURzQkpvSTFKRlBSd3V1akIrcng0aDhxNlJBNXRuRVlWUVNpWiIsInNhbHQiOiIwU3NIZnJDMEY1OUZZQmhHSnRKb2QvN3NMTzh3Um82Wm5mTnl6VThIeHYyV2FrdWd6dDhZc09nSDJwUHBiMnAxQlczU1BTWDN5L29GczlaN1NqTktpc2h3Iiwia2V5TGVuZ3RoIjo2NiwiaGFzaE1ldGhvZCI6InBia2RmMiIsIml0ZXJhdGlvbnMiOjcyNjIzfQ=="}}' --proxy='{"www.example.localhost": [["/auth", "localhost:8000/", {"auth": true}]]}' --redirect='{"www.example.localhost": {"/some-path": "/"}}'
+DEBUG=gateway-lite npm start -- --https-port 3000 --port 8001 --cert domain/www.example.localhost/sni/cert.pem --key domain/www.example.localhost/sni/key.pem --domain domain --lets-encrypt --email james@example.com --user='{"www.example.localhost": {"hello": "eyJoYXNoIjoiU2xkK2RwOGx3cFM1WDJzTHlnTUxmOXhNTlZ5NHV5UjZwK3pQTGhNLzJqMVRlRTF5Q1AxbURzQkpvSTFKRlBSd3V1akIrcng0aDhxNlJBNXRuRVlWUVNpWiIsInNhbHQiOiIwU3NIZnJDMEY1OUZZQmhHSnRKb2QvN3NMTzh3Um82Wm5mTnl6VThIeHYyV2FrdWd6dDhZc09nSDJwUHBiMnAxQlczU1BTWDN5L29GczlaN1NqTktpc2h3Iiwia2V5TGVuZ3RoIjo2NiwiaGFzaE1ldGhvZCI6InBia2RmMiIsIml0ZXJhdGlvbnMiOjcyNjIzfQ=="}}' --proxy='{"www.example.localhost": [["/auth", "localhost:8000/auth", {"auth": true}]]}' --redirect='{"www.example.localhost": {"/some-path": "/"}}' --pwa='{"www.example.localhost": {"networkErrorUrl":"/auth/network-error", "startUrl":"/auth/start"}}'
 ```
-
-The certificates you sepcify here are used if a SNI match can't be found to use
-a better certificate for the domain.
 
 You can get further debugging with `DEBUG=gateway-lite,express-http-proxy`.
 
-If you need a `dhparam.pem` file, you can use the `--dhparam` flag.
+You can put an icon at `/public/theme/icon192.png` if you want one displayed.
+
+The certificates you specify here are used if a SNI match can't be found to use
+a better certificate for the domain.
+
+The example above also enables service workers.
+
+**Caution: When using service workers the browser caches resources so it can be confusing to debug things. To force the browser to refresh, try setting a new version number, or clear the browser service worker cache.**
 
 To test everything is working, run a server on port 8000. There is a suitable project called `express-downstream` but you could run any server.
+
+Alternatively, as an example backend that supports service workers and PJAX, you can run the `express-mustache-overlays` example from a checkout of its codebase:
+
+```
+git clone https://github.com/thejimmyg/express-mustache-overlays.git
+cd express-mustache-overlays
+npm install
+SCRIPT_NAME="/auth" DEMO_ROUTES=true MUSTACHE_DIRS=overlay DEBUG=express-mustache-overlays,express-mustache-overlays:server WITH_PJAX_PWA=true MANIFEST_URL="/public/theme/manifest.json" SERVICE_WORKER_URL="/sw.js" ICON_192_URL="/public/theme/icon192.png" THEME_COLOR="#000000" NETWORK_ERROR_URL=/auth/network-error PORT=8000 npm start
+```
 
 Now visit https://www.example.localhost:3000/some-path and after being redirected to `/` and
 you should see the message proxied from the downstream server.
@@ -249,7 +304,7 @@ curl -k -v -u hello:world https://www.example.localhost:3000/auth
 curl -k -v -u HeLlo:world https://www.example.localhost:3000/auth
 ```
 
-If you don't have a separate downstream server running you'll see `{"error":"504"}` instead. With the wrong password you'd see `HTTP/1.1 401 Unauthorized` in the response headers.
+If you don't have a separate downstream server running or you visit `/` instead of `/auth` you'll see `{"error":"504"}` instead. With the wrong password you'd see `HTTP/1.1 401 Unauthorized` in the response headers.
 
 You can use plain text passwords instead of the password hashes if you prefer, as long as they are less than or equal to 64 characters long. You can generate your own hashes by running this server, signing in with `hello` and `world` and visiting the hash generator at http://localhost:8000/hash
 
@@ -264,6 +319,13 @@ Then return to the directory for gateway-lite with:
 ```
 cd ../../
 ```
+
+When visiting `/auth` with the `express-mustache-overlays` downstream server
+through the PWA-enabled proxy, you should see that the scripts are only fetched
+once, and that as you navigate from page to page, PJAX is used (look in the
+console to check there aren't full page refreshes). You should also find the
+network error page is dipslayed if you stop one of the servers, and an service
+worker and app manifest are set up for you.
 
 ## Docker Compose and Certbot
 
