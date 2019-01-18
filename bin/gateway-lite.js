@@ -286,13 +286,13 @@ async function domainApp (domainDir, domain, httpOptions, httpsOptions) {
     }
   }
 
-  const { manifestUrl = (overlaysOptions.manifestUrl || '/public/theme/manifest.json'), serviceWorkerUrl = (overlaysOptions.serviceWorkerUrl || '/sw.js'), name = 'App', shortName = 'app', display = 'standalone', startUrl = '/start', offlineUrl = (overlaysOptions.offlineUrl || '/offline'), urlsToCache = [], backgroundColor = 'white', themeColor = '#000000', version = '0.1.0', defaultLocale = 'en', description = 'App', icon192Url = (overlaysOptions.icon192Url || '/public/theme/icon192.png'), icon192File = './icon192.png', icon512Url = '/public/theme/icon512.png', icon512File = './icon512.png' } = pwa
+  const { manifestUrl = (overlaysOptions.manifestUrl || '/public/theme/manifest.json'), serviceWorkerUrl = (overlaysOptions.serviceWorkerUrl || '/sw.js'), name = 'App', shortName = 'app', display = 'standalone', startUrl = '/start', networkErrorUrl = (overlaysOptions.networkErrorUrl || '/network-error'), urlsToCache = [], backgroundColor = 'white', themeColor = (overlaysOptions.themeColor || '#000000'), version = '0.1.0', defaultLocale = 'en', description = 'App', icon192Url = (overlaysOptions.icon192Url || '/public/theme/icon192.png'), icon192File = './icon192.png', icon512Url = '/public/theme/icon512.png', icon512File = './icon512.png' } = pwa
   if (Object.keys(pwa).length) {
     debug(`  Setting up service worker URL at ${serviceWorkerUrl}.`)
     app.get(serviceWorkerUrl, async (req, res, next) => {
       try {
-        const lookup = {startUrl, offlineUrl, icon512Url, icon192Url, manifestUrl}
-        const filesToCache = [startUrl, offlineUrl, icon512Url, icon192Url, manifestUrl]
+        const lookup = {startUrl, networkErrorUrl, icon512Url, icon192Url, manifestUrl}
+        const filesToCache = [startUrl, networkErrorUrl, icon512Url, icon192Url, manifestUrl]
         for (let i = 0; i < urlsToCache.length; i++) {
           filesToCache.push(urlsToCache[i][0])
           lookup[urlsToCache[i][0]] = urlsToCache[i][0]
@@ -341,8 +341,8 @@ self.addEventListener('fetch', function(event) {
           console.log('Returning path "' + lookup[path] + '" for "'+ path +'" from cache ...')
           return cache.match(lookup[path])
         } else {
-          console.log('Returning "${offlineUrl}" for path "' + path + '" since it is not in the cache ...')
-          return cache.match('${offlineUrl}').then(function(r) {console.log(r); return r}).catch(function(e) {console.log(e)})
+          console.log('Returning "${networkErrorUrl}" for path "' + path + '" since it is not in the cache ...')
+          return cache.match('${networkErrorUrl}').then(function(r) {console.log(r); return r}).catch(function(e) {console.log(e)})
         }
       })
     })
@@ -353,39 +353,6 @@ self.addEventListener('fetch', function(event) {
         next(e)
       }
     })
-
-// var uniqueFilesToCache = [];
-// self.addEventListener('install', function(event) {
-//   // event.waitUntil(self.skipWaiting())
-//   var promises = [];
-//   filesToCache.forEach(function(fileToCache) {
-//     var offlineRequest = new Request(fileToCache[0]);
-//     console.log('Preparing fetch for', fileToCache[0]);
-//     promises.push(
-//       fetch(offlineRequest).then(function(response) {
-//         return caches.open('offline').then(function(cache) {
-//           const p = []
-//           var r = cache.put(offlineRequest, response).then(function(t) {
-//             console.log('Fetched', t)
-//           })
-//           p.push(r)
-//           fileToCache.slice(1, fileToCache.length).forEach(function(duplicate) {
-//             console.log('Preparing fetch for duplicate', fileToCache[0]);
-//             uniqueFilesToCache.push(duplicate)
-//             var fileOfflineRequest = new Request(duplicate);
-//             console.log('[oninstall] Cached offline page', response.url, 'as', duplicate);
-//             var r = cache.put(fileOfflineRequest, response).then(function(t) {
-//               console.log('Fetched', t)
-//             })
-//             p.push(r)
-//           })
-//           return Promise.all(p).then(function(all) { return all[0] })
-//         });
-//       })
-//     )
-//   })
-//   event.waitUntil(Promise.all(promises).then(function(success) { self.skipWaiting() ; console.log('Finished populating the cache. Ready.'); return success }));
-// });
 
     debug(`  Setting up manifest at ${manifestUrl}.`)
     app.get(manifestUrl, async (req, res, next) => {
@@ -399,6 +366,7 @@ self.addEventListener('fetch', function(event) {
           background_color: backgroundColor,
           theme_color: themeColor,
           short_name: shortName,
+          scope: "/",
           version,
           default_locale: defaultLocale,
           description,

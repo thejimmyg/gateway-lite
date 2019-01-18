@@ -93,7 +93,7 @@ This defines all the users who can sign into the system.
 
 If this file is present, we treat this domain as hosting a *progressive web app*. Specifically, Gateway Lite will:
 
-* Generate a service worker at `serviceWorkerUrl` (by default `/sw.js`) such that the start URL, offline URL and all the other URLs you need are cached for offline use
+* Generate a service worker at `serviceWorkerUrl` (by default `/sw.js`) such that the start URL, network error URL and all the other URLs you need are cached for offline use when there is a network error
 * Generate an application manifest at `manifestUrl` (by default `manifest.json`)
 
 Together these will enable your website to be added to the home screen on Android and iOS as well as made into a Chrome app by Chrome or on Chromebooks.
@@ -134,7 +134,7 @@ Here is a sample `pwa.json` you can customise:
     "shortName": "myapp",
     "display": "standalone",
     "startUrl": "/start",
-    "offlineUrl": "/offline",
+    "networkErrorUrl": "/network-error",
     "serviceWorkerUrl": "/sw.js",
     "manifestUrl": "/manifest.json",
     "urlsToCache": [
@@ -154,7 +154,7 @@ Here is a sample `pwa.json` you can customise:
 ```
 
 The `urlsToCache` option is where you specify all the extra resources your
-offline and start pages will need in order to render correctly when there is no
+network error and start pages will need in order to render correctly when there is no
 network available. The 192 and 512 icons are served automatically, so you don't
 need to specify them again.
 
@@ -170,7 +170,7 @@ The `version` option is included in the served `/sw.js` file, so that when you
 change version number, all browsers will re-download the URLs they need.
 **Caution: If you forget to update the version number, some browsers might use
 old versions of those files, so update the version number any time any of the
-`urlsToCache`, `startUrl` or `offlineUrl` change.
+`urlsToCache`, `startUrl` or `networkErrorUrl` change.
 
 The icon files are automatically served from the domain directory (the one
 containing the `pwa.json` path).
