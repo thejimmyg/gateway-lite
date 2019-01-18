@@ -268,12 +268,12 @@ The certificate should now be trusted in other browsers like Safari too (but won
 
 ```
 npm install
-DEBUG=gateway-lite npm start -- --https-port 3000 --port 8001 --cert domain/www.example.localhost/sni/cert.pem --key domain/www.example.localhost/sni/key.pem --domain domain --lets-encrypt --email james@example.com --user='{"www.example.localhost": {"hello": "eyJoYXNoIjoiU2xkK2RwOGx3cFM1WDJzTHlnTUxmOXhNTlZ5NHV5UjZwK3pQTGhNLzJqMVRlRTF5Q1AxbURzQkpvSTFKRlBSd3V1akIrcng0aDhxNlJBNXRuRVlWUVNpWiIsInNhbHQiOiIwU3NIZnJDMEY1OUZZQmhHSnRKb2QvN3NMTzh3Um82Wm5mTnl6VThIeHYyV2FrdWd6dDhZc09nSDJwUHBiMnAxQlczU1BTWDN5L29GczlaN1NqTktpc2h3Iiwia2V5TGVuZ3RoIjo2NiwiaGFzaE1ldGhvZCI6InBia2RmMiIsIml0ZXJhdGlvbnMiOjcyNjIzfQ=="}}' --proxy='{"www.example.localhost": [["/auth", "localhost:8000/auth", {"auth": true}]]}' --redirect='{"www.example.localhost": {"/some-path": "/"}}' --pwa='{"www.example.localhost": {"networkErrorUrl":"/auth/network-error", "startUrl":"/auth/start"}}'
+DEBUG=gateway-lite npm start -- --https-port 3000 --port 8001 --cert domain/www.example.localhost/sni/cert.pem --key domain/www.example.localhost/sni/key.pem --domain domain --lets-encrypt --email james@example.com --user='{"www.example.localhost": {"hello": "eyJoYXNoIjoiU2xkK2RwOGx3cFM1WDJzTHlnTUxmOXhNTlZ5NHV5UjZwK3pQTGhNLzJqMVRlRTF5Q1AxbURzQkpvSTFKRlBSd3V1akIrcng0aDhxNlJBNXRuRVlWUVNpWiIsInNhbHQiOiIwU3NIZnJDMEY1OUZZQmhHSnRKb2QvN3NMTzh3Um82Wm5mTnl6VThIeHYyV2FrdWd6dDhZc09nSDJwUHBiMnAxQlczU1BTWDN5L29GczlaN1NqTktpc2h3Iiwia2V5TGVuZ3RoIjo2NiwiaGFzaE1ldGhvZCI6InBia2RmMiIsIml0ZXJhdGlvbnMiOjcyNjIzfQ=="}}' --proxy='{"www.example.localhost": [["/auth", "localhost:8000/auth", {"auth": true}]]}' --redirect='{"www.example.localhost": {"/some-path": "/"}}' --pwa='{"www.example.localhost": {"networkErrorUrl":"/auth/network-error", "icon192Url":"/public/theme/icon192.png", "startUrl":"/auth/start"}}'
 ```
 
 You can get further debugging with `DEBUG=gateway-lite,express-http-proxy`.
 
-You can put an icon at `/public/theme/icon192.png` if you want one displayed.
+You can put an icon at `domain/www.example.com/icon192.png` if you want one displayed at `/public/theme/icon192.png`.
 
 The certificates you specify here are used if a SNI match can't be found to use
 a better certificate for the domain.
@@ -352,7 +352,7 @@ version: "3"
 services:
   gateway:
     restart: unless-stopped
-    image: thejimmyg/gateway-lite:0.2.12
+    image: thejimmyg/gateway-lite:0.2.13
     ports:
       - "80:80"
       - "443:443"
@@ -673,6 +673,10 @@ example, you could add this to the existing `command:` section:
 
 
 ## Changelog
+
+### 0.2.13 2019-01-18
+
+* Upgraded for `express-mustache-overlays` 0.4.0
 
 ### 0.2.12 2019-01-12
 

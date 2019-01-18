@@ -34,6 +34,7 @@ const cwd = process.cwd()
 const pw = credential({ work: 0.1 })
 const verifyAsync = promisify(pw.verify)
 const overlaysOptions = overlaysOptionsFromEnv()
+const startUrlDefault = process.env.START_URL
 
 const command = (args) => {
   const options = [
@@ -291,7 +292,7 @@ async function domainApp (domainDir, domain, httpOptions, httpsOptions) {
     }
   }
 
-  const { manifestUrl = (overlaysOptions.manifestUrl || '/public/theme/manifest.json'), serviceWorkerUrl = (overlaysOptions.serviceWorkerUrl || '/sw.js'), name = 'App', shortName = 'app', display = 'standalone', startUrl = '/start', networkErrorUrl = (overlaysOptions.networkErrorUrl || '/network-error'), urlsToCache = [], backgroundColor = 'white', themeColor = (overlaysOptions.themeColor || '#000000'), version = '0.1.0', defaultLocale = 'en', description = 'App', icon192Url = (overlaysOptions.icon192Url || '/public/theme/icon192.png'), icon192File = './icon192.png', icon512Url = '/public/theme/icon512.png', icon512File = './icon512.png' } = pwa
+  const { manifestUrl = (overlaysOptions.manifestUrl || '/public/theme/manifest.json'), serviceWorkerUrl = (overlaysOptions.serviceWorkerUrl || '/sw.js'), name = 'App', shortName = 'app', display = 'standalone', startUrl = startUrlDefault, networkErrorUrl = (overlaysOptions.networkErrorUrl || '/network-error'), urlsToCache = [], backgroundColor = 'white', themeColor = (overlaysOptions.themeColor || '#000000'), version = '0.1.0', defaultLocale = 'en', description = 'App', icon192Url = (overlaysOptions.icon192Url || '/public/theme/icon192.png'), icon192File = './icon192.png', icon512Url = '/public/theme/icon512.png', icon512File = './icon512.png' } = pwa
   if (pwaEnabled) {
     debug(`  Setting up service worker URL at ${serviceWorkerUrl}.`)
     app.get(serviceWorkerUrl, async (req, res, next) => {
