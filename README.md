@@ -284,15 +284,6 @@ The example above also enables service workers.
 
 To test everything is working, run a server on port 8000. There is a suitable project called `express-downstream` but you could run any server.
 
-Alternatively, as an example backend that supports service workers and PJAX, you can run the `express-mustache-overlays` example from a checkout of its codebase:
-
-```
-git clone https://github.com/thejimmyg/express-mustache-overlays.git
-cd express-mustache-overlays
-npm install
-SCRIPT_NAME="/auth" DEMO_ROUTES=true MUSTACHE_DIRS=overlay DEBUG=express-mustache-overlays,express-mustache-overlays:server WITH_PJAX_PWA=true MANIFEST_URL="/public/theme/manifest.json" SERVICE_WORKER_URL="/sw.js" ICON_192_URL="/public/theme/icon192.png" THEME_COLOR="#000000" NETWORK_ERROR_URL=/auth/network-error PORT=8000 npm start
-```
-
 Now visit https://www.example.localhost:3000/some-path and after being redirected to `/` and
 you should see the message proxied from the downstream server.
 
@@ -673,6 +664,10 @@ example, you could add this to the existing `command:` section:
 
 
 ## Changelog
+
+### 0.2.14 2019-02-15
+
+* Refactored PWA functionality into pjax-pwa-overlay
 
 ### 0.2.13 2019-01-18
 

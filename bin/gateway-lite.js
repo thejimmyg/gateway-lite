@@ -19,6 +19,7 @@ const vhost = require('vhost')
 const yaml = require('js-yaml')
 const { promisify } = require('util')
 const { overlaysOptionsFromEnv } = require('express-mustache-overlays')
+const { setupPjaxPwa } = require('pjax-pwa-overlay')
 
 process.on('SIGINT', function () {
   console.log('Received SIGINT. Exiting ...')
@@ -292,117 +293,10 @@ async function domainApp (domainDir, domain, httpOptions, httpsOptions) {
     }
   }
 
-  const { manifestUrl = (overlaysOptions.manifestUrl || '/public/theme/manifest.json'), serviceWorkerUrl = (overlaysOptions.serviceWorkerUrl || '/sw.js'), name = 'App', shortName = 'app', display = 'standalone', startUrl = startUrlDefault, networkErrorUrl = (overlaysOptions.networkErrorUrl || '/network-error'), urlsToCache = [], backgroundColor = 'white', themeColor = (overlaysOptions.themeColor || '#000000'), version = '0.1.0', defaultLocale = 'en', description = 'App', icon192Url = (overlaysOptions.icon192Url || '/public/theme/icon192.png'), icon192File = './icon192.png', icon512Url = '/public/theme/icon512.png', icon512File = './icon512.png' } = pwa
   if (pwaEnabled) {
-    debug(`  Setting up service worker URL at ${serviceWorkerUrl}.`)
-    app.get(serviceWorkerUrl, async (req, res, next) => {
-      try {
-        const lookup = {startUrl, networkErrorUrl, icon512Url, icon192Url, manifestUrl}
-        const filesToCache = [startUrl, networkErrorUrl, icon512Url, icon192Url, manifestUrl]
-        for (let i = 0; i < urlsToCache.length; i++) {
-          filesToCache.push(urlsToCache[i][0])
-          lookup[urlsToCache[i][0]] = urlsToCache[i][0]
-          for (let j = 0; j < urlsToCache[i].length; j++) {
-            lookup[urlsToCache[i][j]] = urlsToCache[i][0]
-          }
-        }
-        // debug(filesToCache)
-        // debug(lookup)
-        res.type('application/javascript')
-        res.send(`// 2019-01-10, manifest version: ${version}
-var filesToCache = ${JSON.stringify(filesToCache)};
-var lookup = ${JSON.stringify(lookup)};
-
-self.addEventListener('install', function(event) {
-  var promises = [];
-  filesToCache.forEach(function(fileToCache) {
-    var offlineRequest = new Request(fileToCache);
-    console.log('Preparing fetch for', fileToCache);
-    promises.push(
-      fetch(offlineRequest).then(function(response) {
-        return caches.open('offline').then(function(cache) {
-          console.log('[oninstall] Cached offline page', response.url, response.status);
-          var r = cache.put(offlineRequest, response);
-          r.then(function(t) {
-            console.log('Fetched', t)
-          })
-          return r
-        });
-      })
-    )
-  })
-  event.waitUntil(Promise.all(promises).then(function(success) { self.skipWaiting() ; console.log('Finished populating the cache. Ready.'); return success }));
-});
-
-self.addEventListener('fetch', function(event) {
-  event.respondWith(
-    fetch(event.request)
-    .catch(function (error) {
-      return caches.open('offline')
-      .then(function(cache) {
-        var url = new URL(event.request.url)
-        var path = url.pathname
-        console.log('Investigating "' + path + '" found "'+ lookup[path] +'" from cache ...')
-        if (lookup[path]) {
-          console.log('Returning path "' + lookup[path] + '" for "'+ path +'" from cache ...')
-          return cache.match(lookup[path])
-        } else {
-          console.log('Returning "${networkErrorUrl}" for path "' + path + '" since it is not in the cache ...')
-          return cache.match('${networkErrorUrl}').then(function(r) {console.log(r); return r}).catch(function(e) {console.log(e)})
-        }
-      })
-    })
-  );
-});
-      `)
-      } catch (e) {
-        next(e)
-      }
-    })
-
-    debug(`  Setting up manifest at ${manifestUrl}.`)
-    app.get(manifestUrl, async (req, res, next) => {
-      try {
-        res.type('application/json')
-        res.json({
-          'manifest_version': 2,
-          name,
-          display,
-          start_url: startUrl,
-          background_color: backgroundColor,
-          theme_color: themeColor,
-          short_name: shortName,
-          scope: "/",
-          version,
-          default_locale: defaultLocale,
-          description,
-          icons: [
-            {
-              src: icon192Url,
-              sizes: '192x192',
-              type: 'image/png'
-            },
-            {
-              src: icon512Url,
-              sizes: '512x512',
-              type: 'image/png'
-            }
-          ]
-        })
-      } catch (e) {
-        next(e)
-      }
-    })
-    const absIcon192File = path.normalize(path.join(process.cwd(), domainDir, domain, icon192File))
-    debug(`  Setting up ${icon192Url} -> ${absIcon192File} serve correctly`)
-    app.get(icon192Url, (req, res, next) => {
-      res.sendFile(absIcon192File)
-    })
-    const absIcon512File = path.normalize(path.join(process.cwd(), domainDir, domain, icon512File))
-    debug(`  Setting up ${icon512Url} -> ${absIcon512File} serve correctly`)
-    app.get(icon512Url, (req, res, next) => {
-      res.sendFile(absIcon512File)
-    })
+    const pwaOptions = Object.assign({}, {withNetworkErrorPage: false, withStartPage: false}, pwa)
+    debug('Setting up PWA with:', pwaOptions)
+    setupPjaxPwa(app, pwaOptions)
   }
 
   if (proxyPaths.length) {
