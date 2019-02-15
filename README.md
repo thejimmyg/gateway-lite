@@ -343,7 +343,7 @@ version: "3"
 services:
   gateway:
     restart: unless-stopped
-    image: thejimmyg/gateway-lite:0.2.13
+    image: thejimmyg/gateway-lite:0.2.14
     ports:
       - "80:80"
       - "443:443"
