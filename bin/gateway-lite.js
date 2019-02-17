@@ -35,7 +35,6 @@ const cwd = process.cwd()
 const pw = credential({ work: 0.1 })
 const verifyAsync = promisify(pw.verify)
 const overlaysOptions = overlaysOptionsFromEnv()
-const startUrlDefault = process.env.START_URL
 
 const command = (args) => {
   const options = [
@@ -246,7 +245,7 @@ async function domainApp (domainDir, domain, httpOptions, httpsOptions) {
     } catch (e) {
       debug('  Error:', e)
     }
-    if ( typeof httpsOptions.pwa[domain] !== "undefined") {
+    if (typeof httpsOptions.pwa[domain] !== 'undefined') {
       pwaEnabled = true
     }
     pwa = Object.assign({}, pwa, httpsOptions.pwa[domain] || {})
@@ -294,7 +293,7 @@ async function domainApp (domainDir, domain, httpOptions, httpsOptions) {
   }
 
   if (pwaEnabled) {
-    const pwaOptions = Object.assign({}, {withNetworkErrorPage: false, withStartPage: false}, pwa)
+    const pwaOptions = Object.assign({}, overlaysOptions, {withNetworkErrorPage: false, withStartPage: false}, pwa)
     debug('Setting up PWA with:', pwaOptions)
     setupPjaxPwa(app, pwaOptions)
   }
