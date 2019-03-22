@@ -343,7 +343,7 @@ version: "3"
 services:
   gateway:
     restart: unless-stopped
-    image: thejimmyg/gateway-lite:0.2.15
+    image: thejimmyg/gateway-lite:0.2.16
     ports:
       - "80:80"
       - "443:443"
@@ -664,6 +664,22 @@ example, you could add this to the existing `command:` section:
 
 
 ## Changelog
+
+### 0.2.16 2019-03-22
+
+* Automatically copy renewed certificates into the domain `sni` directory
+* Automatically exit after certificate renewal so that new certificates can be loaded
+* Upgraded js-yaml for to fix security audit
+* Removed nodemailer as it isn't used
+* Created new `install-certificates` script which takes the domain directory as its
+  argument and installs the latest certificates from the existing Lets Encrypt directory
+  from `/etc/letsencrypt` into the domain directory. Use like this:
+
+  ```
+  DEBUG=gateway-lite node bin/install-certificates.js domain
+  ```
+* Exit after renewing certificates (assumes that the process will be automatically
+  restarted to load the new certificates.
 
 ### 0.2.15 2019-02-15
 

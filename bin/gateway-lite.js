@@ -20,6 +20,7 @@ const yaml = require('js-yaml')
 const { promisify } = require('util')
 const { overlaysOptionsFromEnv } = require('express-mustache-overlays')
 const { setupPjaxPwa } = require('pjax-pwa-overlay')
+const {copyCerts, installCertificates} = require('../lib/')
 
 process.on('SIGINT', function () {
   console.log('Received SIGINT. Exiting ...')
@@ -500,8 +501,26 @@ async function main () {
             console.log('Program stderr:', stderr)
             if (code !== 0) {
               shell.echo('Error: Failed to renew certificates')
+            } else {
+              installCertificates(domainDir)
+              .then((successes) => {
+                if (successes > 0) {
+                  const msg = 'Renewal succeeded, exiting so that gateway-lite can renew with new certificates ...'
+                  console.log(msg)
+                  debug(msg)
+                  process.exit(0)
+                } else {
+                  debug('No certificates were installed')
+                }
+              })
+              .catch((e) => {
+                debug(`Error occurred installing certificates: ${e}`)
+              })
             }
           })
+          if (shell.error()) {
+            debug(`Could not run the Lets Encrypt renewal command`)
+          }
         },
         wait * 1000
       )
@@ -594,18 +613,7 @@ async function main () {
     debug('  ' + certs.length + ' certificates found')
     if (certs.length < 2) {
       if (letsEncrypt) {
-        let fixed = false
-        shell.cp(`/etc/letsencrypt/live/${domain}/fullchain.pem`, path.join(domainDir, domain, 'sni', 'cert.pem'))
-        if (shell.error()) {
-          debug('Could not copy', `/etc/letsencrypt/live/${domain}/fullchain.pem`)
-        } else {
-          shell.cp(`/etc/letsencrypt/live/${domain}/privkey.pem`, path.join(domainDir, domain, 'sni', 'key.pem'))
-          if (shell.error()) {
-            debug('Could not copy', `/etc/letsencrypt/live/${domain}/provkey.pem`)
-          } else {
-            fixed = true
-          }
-        }
+        let fixed = await copyCerts(domainDir, domain)
         if (fixed) {
           let msg = `Added an exiting set of certificates for ${domain}.`
           debug(msg)
@@ -631,21 +639,13 @@ async function main () {
                   reject(new Error('Failed to get certificate for ' + domain))
                 } else {
                   debug('  Got new certificate for ' + domain)
-                  shell.cp(`/etc/letsencrypt/live/${domain}/fullchain.pem`, path.join(sni, 'cert.pem'))
-                  if (shell.error()) {
-                    let msg = `Could not copy '/etc/letsencrypt/live/${domain}/fullchain.pem'`
-                    debug(msg)
-                    reject(new Error(msg))
-                  } else {
-                    shell.cp(`/etc/letsencrypt/live/${domain}/privkey.pem`, path.join(sni, 'key.pem'))
-                    if (shell.error()) {
-                      let msg = `Could not copy '/etc/letsencrypt/live/${domain}/privkey.pem'`
-                      debug(msg)
-                      reject(msg)
-                    } else {
-                      resolve(true)
-                    }
-                  }
+                  copyCerts(domainDir, domain)
+                  .then((fixed) => {
+                    resolve(true)
+                  })
+                  .catch((e) => {
+                    reject(new Error('Could not copy certs'))
+                  })
                 }
               })
             })
