@@ -19,5 +19,6 @@ ENV HTTPS_PORT=443
 ENV NODE_ENV=production
 ENV PATH="${PATH}:/app/node_modules/.bin"
 COPY bin/ /app/bin/
+COPY lib/ /app/lib/
 ENTRYPOINT ["node", "bin/gateway-lite.js"]
 CMD []
