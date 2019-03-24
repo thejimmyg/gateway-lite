@@ -202,6 +202,10 @@ The third argument is optional, but if specified can have these keys:
 * `auth` - can be `false` (default) to mean no security is added or `true` to
   mean the user has to sign in with a credential in `users.json` to be able to
   access the route
+* `authExceptOptions` - can be `false` (default) to mean no security is added
+  or `true` to mean the user has to sign in with a credential in `users.json` to
+  be able to access the route, except if it is an OPTIONS request which will get
+  passed through anyway. This is handy for enabling CORS pre-flight requests.
 * `cascade` - can be set to `true` to enable cascade behaviour. In this mode
   if a downstream server returns a 404, Gateway Lite will simply try the next
   downstream server
@@ -343,7 +347,7 @@ version: "3"
 services:
   gateway:
     restart: unless-stopped
-    image: thejimmyg/gateway-lite:0.2.16
+    image: thejimmyg/gateway-lite:0.2.17
     ports:
       - "80:80"
       - "443:443"
@@ -664,6 +668,15 @@ example, you could add this to the existing `command:` section:
 
 
 ## Changelog
+
+### 0.2.17 2019-03-24
+
+* Added an `authExceptOptions` setting as well as `auth` as a possible option
+  in the proxy configuration. They are the same except `authExceptOptions`
+  doesn't require authorization for `OPTIONS` requests and will just proxy them
+  directly. This is handy if there is a CORS backend that needs to respond to
+  an `OPTIONS` pre-flight request before authorization credentials can be
+  passed.
 
 ### 0.2.16 2019-03-22
 

@@ -315,7 +315,7 @@ async function domainApp (domainDir, domain, httpOptions, httpsOptions) {
       if (proxyPaths[i].length > 3) {
         throw new Error('Too many items in the array for downstream server ' + proxyPaths[i])
       }
-      let {auth = false, limit, cascade = false, ws = false, ...rest} = options || {}
+      let {authExceptOptions = false, auth = false, limit, cascade = false, ws = false, ...rest} = options || {}
       if (Object.keys(rest).length) {
         throw new Error('Unexpected extra options: ' + Object.keys(rest).join(', '), 'for downstream server ' + proxyPaths[i])
       }
@@ -328,7 +328,7 @@ async function domainApp (domainDir, domain, httpOptions, httpsOptions) {
       if (typeof limit === 'undefined') {
         limit = '500mb'
       }
-      if (auth) {
+      if (auth || authExceptOptions) {
         debug(`    Set up ${Object.keys(users).length} auth user(s)`)
         // app.use(reqPath, basicAuth({users, challenge: true}))
         const lowerCaseUsers = {}
@@ -337,7 +337,7 @@ async function domainApp (domainDir, domain, httpOptions, httpsOptions) {
             lowerCaseUsers[username.toLowerCase()] = users[username]
           }
         }
-        app.use(reqPath, basicAuth({ authorizeAsync: true,
+        const authorizer = basicAuth({ authorizeAsync: true,
           challenge: true,
           authorizer: (username, password, cb) => {
             const lowerCaseUsername = username.toLowerCase()
@@ -360,7 +360,19 @@ async function domainApp (domainDir, domain, httpOptions, httpsOptions) {
               })
             }
           }
-        }))
+        })
+        if (authExceptOptions) {
+          // Pass through options request
+          app.use(reqPath, (req, res, next) => {
+            if (req.method !== 'OPTIONS') {
+              authorizer(req, res, next)
+            } else {
+              next()
+            }
+          })
+        } else {
+          app.use(reqPath, authorizer)
+        }
       }
       if (ws) {
         const pathRewrite = {}
